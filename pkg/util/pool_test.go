@@ -211,7 +211,7 @@ func TestPutTargets(t *testing.T) {
 	pm := NewPoolManager(cfg)
 
 	targets := pm.GetTargets(10)
-	targets = append(targets, "http://localhost:8080")
+	targets = append(targets, "http://localhost:8083")
 
 	// PutTargets 不应抛出异常
 	assert.NotPanics(t, func() {
@@ -267,7 +267,7 @@ func TestPutRules(t *testing.T) {
 	pm := NewPoolManager(cfg)
 
 	rules := pm.GetRules(10)
-	rules = append(rules, config.RoutingRule{Target: "http://localhost:8080"})
+	rules = append(rules, config.RoutingRule{Target: "http://localhost:8083"})
 
 	// PutRules 不应抛出异常
 	assert.NotPanics(t, func() {
@@ -287,7 +287,7 @@ func TestPoolReuse(t *testing.T) {
 
 	// 测试 Targets 池
 	targets1 := pm.GetTargets(10)
-	targets1 = append(targets1, "http://localhost:8080")
+	targets1 = append(targets1, "http://localhost:8083")
 	pm.PutTargets(targets1)
 	targets2 := pm.GetTargets(10)
 	assert.Equal(t, 0, len(targets2), "Targets should be reset after reuse")

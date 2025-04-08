@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/penwyp/mini-edulive/pkg/protocol"
 	"os"
 	"strings"
 	"sync"
@@ -48,6 +49,7 @@ type Server struct {
 
 // Client 客户端专用配置
 type Client struct {
+	UserID       uint64        `mapstructure:"userID"`       // 用户 ID
 	SendInterval time.Duration `mapstructure:"sendInterval"` // 发送间隔
 	MaxRetries   int           `mapstructure:"maxRetries"`   // 重试次数
 }
@@ -64,12 +66,13 @@ type Logger struct {
 
 // WebSocket WebSocket 配置
 type WebSocket struct {
-	Enabled     bool          `mapstructure:"enabled"`
-	MaxConns    int           `mapstructure:"maxConns"` // 服务端用
-	IdleTimeout time.Duration `mapstructure:"idleTimeout"`
-	ReadBuffer  int           `mapstructure:"readBuffer"`
-	WriteBuffer int           `mapstructure:"writeBuffer"`
-	Endpoint    string        `mapstructure:"endpoint"` // 客户端用
+	Enabled         bool          `mapstructure:"enabled"`
+	MaxConns        int           `mapstructure:"maxConns"`
+	IdleTimeout     time.Duration `mapstructure:"idleTimeout"`
+	ReadBuffer      int           `mapstructure:"readBuffer"`
+	WriteBuffer     int           `mapstructure:"writeBuffer"`
+	Endpoint        string        `mapstructure:"endpoint"`
+	ProtocolVersion uint8         `mapstructure:"protocolVersion"` // 新增：协议版本，默认 0x01
 }
 
 // Kafka Kafka 配置
@@ -283,7 +286,7 @@ func (cm *ConfigManager) SaveConfigToFile(cfg *Config, filePath string) error {
 // setDefaultValues 设置默认配置值
 func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("type", "server")
-	v.SetDefault("server.port", "8080")
+	v.SetDefault("server.port", "8083")
 	v.SetDefault("server.ginMode", "release")
 
 	v.SetDefault("logger.level", "info")
@@ -298,7 +301,8 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("websocket.idleTimeout", 5*time.Minute)
 	v.SetDefault("websocket.readBuffer", 1024)
 	v.SetDefault("websocket.writeBuffer", 1024)
-	v.SetDefault("websocket.endpoint", "ws://localhost:8080")
+	v.SetDefault("websocket.endpoint", "ws://localhost:8083")
+	v.SetDefault("websocket.protocolVersion", protocol.CurrentVersion)
 
 	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
 	v.SetDefault("kafka.topic", "bullet_topic")
@@ -332,6 +336,7 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("performance.memoryPool.rulesCapacity", 100)
 
 	// client
+	v.SetDefault("client.userID", 10001)
 	v.SetDefault("client.sendInterval", 100*time.Millisecond)
 	v.SetDefault("client.maxRetries", 3)
 }
@@ -388,7 +393,7 @@ func InitTestConfigManager() {
 	configMgr = &ConfigManager{
 		config: &Config{
 			Server: Server{
-				Port:    "8080",
+				Port:    "8083",
 				GinMode: "debug",
 			},
 			Logger: Logger{

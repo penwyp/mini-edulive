@@ -1,7 +1,9 @@
 # 项目基本信息
-BINARY_NAME = mini-edulive
+SERVER_BINARY_NAME = mini-edulive-server
+CLIENT_BINARY_NAME = mini-edulive-client
 BIN_DIR = bin
-CMD_DIR = cmd/edulive
+SERVER_CMD_DIR = cmd/edulive-server
+CLIENT_CMD_DIR = cmd/edulive-client
 MODULE = github.com/penwyp/mini-edulive
 VERSION = 0.1.0
 BUILD_TIME = $(shell date +%Y-%m-%dT%H:%M:%S%z)
@@ -29,27 +31,28 @@ deps:
 
 # 编译项目并将二进制放入 bin 目录
 .PHONY: build
-#build: deps
-build: deps build-plugins
-	@mkdir -p $(BIN_DIR)
-	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_DIR)/main.go
+build: deps build-server build-client
 
-.PHONY: build-plugins
-build-plugins:
-	@echo "Building plugins..."
-	@for dir in $(wildcard plugins/*); do \
-		if [ -f "$$dir/main.go" ]; then \
-			echo "Building $$dir..."; \
-			(cd $$dir && go build -buildmode=plugin -o ../../$(BIN_DIR)/plugins/$$(basename $$dir).so .) || exit 1; \
-		fi \
-	done
-	@echo "Plugins built successfully"
+.PHONY: build-server
+build-server: deps
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(SERVER_BINARY_NAME) $(SERVER_CMD_DIR)/main.go
+
+.PHONY: build-client
+build-client: deps
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(CLIENT_BINARY_NAME) $(CLIENT_CMD_DIR)/main.go
 
 # 运行项目
-.PHONY: run
-run: build
-	@rm -f logs/edulive.log  # 清理日志文件
-	$(BIN_DIR)/$(BINARY_NAME)
+.PHONY: run-server
+run-server: build-server
+	@rm -f logs/edulive_server.log  # 清理日志文件
+	$(BIN_DIR)/$(SERVER_BINARY_NAME)
+
+.PHONY: run-client
+run-client: build-client
+	@rm -f logs/edulive_client.log  # 清理日志文件
+	$(BIN_DIR)/$(CLIENT_BINARY_NAME)
 
 # 测试
 .PHONY: test
@@ -77,7 +80,7 @@ clean:
 # 生成 Swagger 文档（假设使用 swag）
 .PHONY: swagger
 swagger:
-	swag init -g $(CMD_DIR)/main.go -o api/swagger
+	swag init -g $(SERVER_CMD_DIR)/main.go -o api/swagger
 
 # 构建 Docker 镜像
 .PHONY: docker-build
@@ -92,10 +95,10 @@ docker-run: docker-build
 # 性能测试（使用 wrk）
 .PHONY: bench
 bench: build
-	$(BIN_DIR)/$(BINARY_NAME) & \
+	$(BIN_DIR)/$(SERVER_BINARY_NAME) & \
 	sleep 2; \
 	$(WRK) -t10 -c100 -d30s http://localhost:8080/health; \
-	pkill $(BINARY_NAME)
+	pkill $(SERVER_BINARY_NAME)
 
 # 安装工具（可选）
 .PHONY: tools

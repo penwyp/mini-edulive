@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/websocket"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -23,5 +24,7 @@ func main() {
 		}
 	}()
 
-	// 启动系统...
+	// 启动系统
+	server := websocket.NewServer(configMgr.GetConfig())
+	server.Start()
 }

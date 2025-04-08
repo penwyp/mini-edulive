@@ -154,6 +154,11 @@ func Info(msg string, fields ...zap.Field) {
 	GetLogger().Info(msg, fields...)
 }
 
+// Panic 记录恐慌日志
+func Panic(msg string, fields ...zap.Field) {
+	GetLogger().Panic(msg, fields...)
+}
+
 // Warn 记录警告日志
 func Warn(msg string, fields ...zap.Field) {
 	GetLogger().Warn(msg, fields...)
