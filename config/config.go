@@ -27,8 +27,8 @@ type ConfigManager struct {
 
 // Config 定义弹幕系统的配置结构体
 type Config struct {
-	Type          string        `mapstructure:"type"` // "server" 或 "client"
-	Server        Server        `mapstructure:"server"`
+	Type          string        `mapstructure:"type"` // "gateway" 或 "client" 或 "worker"
+	App           App           `mapstructure:"app"`
 	Logger        Logger        `mapstructure:"logger"`
 	WebSocket     WebSocket     `mapstructure:"websocket"`
 	Kafka         Kafka         `mapstructure:"kafka"`
@@ -41,8 +41,8 @@ type Config struct {
 	Client        Client        `mapstructure:"client"` // 客户端专用
 }
 
-// Server 服务器配置
-type Server struct {
+// App 服务器配置
+type App struct {
 	Port    string `mapstructure:"port"`
 	GinMode string `mapstructure:"ginMode"`
 }
@@ -78,8 +78,9 @@ type WebSocket struct {
 
 // Kafka Kafka 配置
 type Kafka struct {
-	Brokers []string `mapstructure:"brokers"`
-	Topic   string   `mapstructure:"topic"`
+	Brokers  []string `mapstructure:"brokers"`
+	Topic    string   `mapstructure:"topic"`
+	Balancer string   `mapstructure:"balancer"` // 分区策略
 }
 
 // Redis Redis 配置
@@ -257,7 +258,7 @@ func (cm *ConfigManager) SaveConfigToFile(cfg *Config, filePath string) error {
 
 	// 使用 yaml.MapSlice 保持字段顺序
 	orderedData := yaml.MapSlice{
-		{Key: "server", Value: cfg.Server},
+		{Key: "app", Value: cfg.App},
 		{Key: "logger", Value: cfg.Logger},
 		{Key: "websocket", Value: cfg.WebSocket},
 		{Key: "kafka", Value: cfg.Kafka},
@@ -286,9 +287,9 @@ func (cm *ConfigManager) SaveConfigToFile(cfg *Config, filePath string) error {
 
 // setDefaultValues 设置默认配置值
 func setDefaultValues(v *viper.Viper) {
-	v.SetDefault("type", "server")
-	v.SetDefault("server.port", "8083")
-	v.SetDefault("server.ginMode", "release")
+	v.SetDefault("type", "gateway")
+	v.SetDefault("app.port", "8083")
+	v.SetDefault("app.ginMode", "release")
 
 	v.SetDefault("logger.level", "info")
 	v.SetDefault("logger.filePath", "logs/bullet.log")
@@ -307,6 +308,7 @@ func setDefaultValues(v *viper.Viper) {
 
 	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
 	v.SetDefault("kafka.topic", "bullet_topic")
+	v.SetDefault("kafka.balancer", "hash")
 
 	v.SetDefault("redis.addr", "localhost:6379")
 	v.SetDefault("redis.password", "")
@@ -344,11 +346,11 @@ func setDefaultValues(v *viper.Viper) {
 
 // validateConfig 验证配置有效性
 func validateConfig(cfg *Config) error {
-	if cfg.Type != "server" && cfg.Type != "client" {
-		return fmt.Errorf("invalid config type: %s, must be 'server' or 'client'", cfg.Type)
+	if cfg.Type != "gateway" && cfg.Type != "client" && cfg.Type != "worker" {
+		return fmt.Errorf("invalid config type: %s, must be 'gateway' or 'client' or 'worker'", cfg.Type)
 	}
 
-	if cfg.Type == "server" {
+	if cfg.Type == "gateway" {
 		if cfg.WebSocket.Enabled && cfg.WebSocket.MaxConns <= 0 {
 			return fmt.Errorf("websocket maxConns must be positive: %d", cfg.WebSocket.MaxConns)
 		}
@@ -393,7 +395,7 @@ func validateConfig(cfg *Config) error {
 func InitTestConfigManager() {
 	configMgr = &ConfigManager{
 		config: &Config{
-			Server: Server{
+			App: App{
 				Port:    "8083",
 				GinMode: "debug",
 			},

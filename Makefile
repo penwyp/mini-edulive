@@ -1,8 +1,8 @@
 # 项目基本信息
-SERVER_BINARY_NAME = mini-edulive-server
+GATEWAY_BINARY_NAME = mini-edulive-gateway
 CLIENT_BINARY_NAME = mini-edulive-client
 BIN_DIR = bin
-SERVER_CMD_DIR = cmd/edulive-server
+GATEWAY_CMD_DIR = cmd/edulive-gateway
 CLIENT_CMD_DIR = cmd/edulive-client
 MODULE = github.com/penwyp/mini-edulive
 VERSION = 0.1.0
@@ -31,12 +31,12 @@ deps:
 
 # 编译项目并将二进制放入 bin 目录
 .PHONY: build
-build: deps build-server build-client
+build: deps build-gateway build-client
 
-.PHONY: build-server
-build-server: deps
+.PHONY: build-gateway
+build-gateway: deps
 	@mkdir -p $(BIN_DIR)
-	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(SERVER_BINARY_NAME) $(SERVER_CMD_DIR)/main.go
+	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(GATEWAY_BINARY_NAME) $(GATEWAY_CMD_DIR)/main.go
 
 .PHONY: build-client
 build-client: deps
@@ -44,10 +44,10 @@ build-client: deps
 	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(CLIENT_BINARY_NAME) $(CLIENT_CMD_DIR)/main.go
 
 # 运行项目
-.PHONY: run-server
-run-server: build-server
-	@rm -f logs/edulive_server.log  # 清理日志文件
-	$(BIN_DIR)/$(SERVER_BINARY_NAME)
+.PHONY: run-gateway
+run-gateway: build-gateway
+	@rm -f logs/edulive_gateway.log  # 清理日志文件
+	$(BIN_DIR)/$(GATEWAY_BINARY_NAME)
 
 .PHONY: run-client
 run-client: build-client
@@ -80,7 +80,7 @@ clean:
 # 生成 Swagger 文档（假设使用 swag）
 .PHONY: swagger
 swagger:
-	swag init -g $(SERVER_CMD_DIR)/main.go -o api/swagger
+	swag init -g $(GATEWAY_CMD_DIR)/main.go -o api/swagger
 
 # 构建 Docker 镜像
 .PHONY: docker-build
@@ -95,10 +95,10 @@ docker-run: docker-build
 # 性能测试（使用 wrk）
 .PHONY: bench
 bench: build
-	$(BIN_DIR)/$(SERVER_BINARY_NAME) & \
+	$(BIN_DIR)/$(GATEWAY_BINARY_NAME) & \
 	sleep 2; \
 	$(WRK) -t10 -c100 -d30s http://localhost:8080/health; \
-	pkill $(SERVER_BINARY_NAME)
+	pkill $(GATEWAY_BINARY_NAME)
 
 # 安装工具（可选）
 .PHONY: tools

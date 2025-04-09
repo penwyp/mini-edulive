@@ -8,11 +8,11 @@ import (
 )
 
 func main() {
-	configMgr := config.InitConfig("config/server_config.yaml")
+	configMgr := config.InitConfig("config/config_gateway.yaml")
 	cfg := configMgr.GetConfig()
 
-	logger.Info("Starting edulive server",
-		zap.String("port", cfg.Server.Port),
+	logger.Info("Starting edulive gateway",
+		zap.String("port", cfg.App.Port),
 		zap.Bool("websocket_enabled", cfg.WebSocket.Enabled),
 		zap.Strings("kafka_brokers", cfg.Kafka.Brokers),
 	)
@@ -25,6 +25,6 @@ func main() {
 	}()
 
 	// 启动系统
-	server := websocket.NewServer(configMgr.GetConfig())
-	server.Start()
+	gateway := websocket.NewServer(configMgr.GetConfig())
+	gateway.Start()
 }

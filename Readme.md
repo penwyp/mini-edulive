@@ -83,15 +83,16 @@
 #### 3.2.1 协议格式定义
 为了提升弹幕消息的传输效率，减少带宽占用，我们设计了一个二进制协议格式，用于客户端与服务端之间的通信。协议格式如下：
 
-| 字段         | 长度（字节） | 描述                              |
-|--------------|--------------|-----------------------------------|
-| 魔数         | 2            | 固定值`0xABCD`，用于标识协议开始 |
-| 版本         | 1            | 协议版本号，当前为`0x01`         |
-| 类型         | 1            | 消息类型（0x01：弹幕，0x02：心跳）|
-| 时间戳       | 8            | 消息发送时间（Unix时间戳，毫秒） |
-| 用户ID       | 8            | 发送者的用户ID                   |
-| 内容长度     | 2            | 弹幕内容的长度（N字节）          |
-| 内容         | N            | 弹幕内容（UTF-8编码的字符串）    |
+| 字段    | 长度（字节） | 描述                    |
+|-------|--------------|-----------------------|
+| 魔数    | 2            | 固定值`0xABCD`，用于标识协议开始  |
+| 版本    | 1            | 协议版本号，当前为`0x01`       |
+| 类型    | 1            | 消息类型（0x01：弹幕，0x02：心跳） |
+| 时间戳   | 8            | 消息发送时间（Unix时间戳，毫秒）    |
+| 直播间ID | 8            | 直播间ID                 |
+| 用户ID  | 8            | 发送者的用户ID              |
+| 内容长度  | 2            | 弹幕内容的长度（N字节）          |
+| 内容    | N            | 弹幕内容（UTF-8编码的字符串）     |
 
 **总长度**：22 + N 字节（N为内容长度）
 
@@ -101,13 +102,14 @@
 - 版本：`0x01`（1字节）
 - 类型：`0x01`（1字节，表示弹幕消息）
 - 时间戳：`0x0000018A2B8C4C00`（8字节，1696118400000的二进制表示）
+- 直播间ID：`0x00000000001E240`（8字节，123456的二进制表示）
 - 用户ID：`0x00000000001E240`（8字节，123456的二进制表示）
 - 内容长度：`0x0005`（2字节，"Hello"的长度为5）
 - 内容：`0x48656C6C6F`（5字节，"Hello"的UTF-8编码）
 
 完整二进制数据（十六进制表示）：
 ```
-ABCD 01 01 0000018A2B8C4C00 00000000001E240 0005 48656C6C6F
+ABCD 01 01 0000018A2B8C4C00 00000000001E240 00000000001E240 0005 48656C6C6F
 ```
 
 #### 3.2.2 协议解析与生成代码
@@ -120,6 +122,7 @@ type BulletMessage struct {
     Version    uint8  // 版本
     Type       uint8  // 类型
     Timestamp  int64  // 时间戳
+    ChannelID  uint64 // 直播间ID
     UserID     uint64 // 用户ID
     ContentLen uint16 // 内容长度
     Content    string // 内容
@@ -179,6 +182,11 @@ func ParseBulletMessage(data []byte) (*BulletMessage, error) {
         return nil, err
     }
 
+    // 读取直播间ID
+    if err := binary.Read(reader, binary.BigEndian, &msg.ChannelID); err != nil {
+        return nil, err
+    }
+	
     // 读取用户ID
     if err := binary.Read(reader, binary.BigEndian, &msg.UserID); err != nil {
         return nil, err
@@ -226,6 +234,11 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
         return nil, err
     }
 
+    // 写入直播间ID
+    if err := binary.Write(buf, binary.BigEndian, msg.ChannelID); err != nil {
+        return nil, err
+    }
+
     // 写入用户ID
     if err := binary.Write(buf, binary.BigEndian, msg.UserID); err != nil {
         return nil, err
@@ -254,6 +267,7 @@ msg := &BulletMessage{
     Version:    CurrentVersion,
     Type:       TypeBullet,
     Timestamp:  time.Now().UnixMilli(),
+    ChannelID:  123456,
     UserID:     123456,
     Content:    "Hello",
     ContentLen: uint16(len("Hello")),

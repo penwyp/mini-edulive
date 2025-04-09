@@ -27,7 +27,7 @@ func NewServer(cfg *config.Config) *Server {
 	kafkaWriter := &kafka.Writer{
 		Addr:     kafka.TCP(cfg.Kafka.Brokers...), // 使用配置中的 Kafka Brokers
 		Topic:    cfg.Kafka.Topic,                 // 使用配置中的 Kafka Topic
-		Balancer: &kafka.Hash{},                   // 使用 Hash 分区策略，确保同一 ChannelID 分配到同一分区
+		Balancer: getBalancer(cfg.Kafka.Balancer), // 使用 Hash 分区策略，确保同一 ChannelID 分配到同一分区
 	}
 
 	return &Server{
@@ -40,9 +40,9 @@ func NewServer(cfg *config.Config) *Server {
 // Start 启动 WebSocket 服务
 func (s *Server) Start() {
 	http.HandleFunc("/bullet", s.handleWebSocket)
-	logger.Info("WebSocket server starting", zap.String("port", s.config.Server.Port))
-	if err := http.ListenAndServe(":"+s.config.Server.Port, nil); err != nil {
-		logger.Error("WebSocket server failed to start", zap.Error(err))
+	logger.Info("WebSocket gateway starting", zap.String("port", s.config.App.Port))
+	if err := http.ListenAndServe(":"+s.config.App.Port, nil); err != nil {
+		logger.Error("WebSocket gateway failed to start", zap.Error(err))
 	}
 }
 
@@ -157,4 +157,21 @@ func (p *ConnPool) UpdateUserID(userID uint64, conn *websocket.Conn) {
 	p.Lock()
 	defer p.Unlock()
 	p.conns[userID] = conn
+}
+
+func getBalancer(balanceMethod string) kafka.Balancer {
+	switch balanceMethod {
+	case "hash":
+		return &kafka.Hash{}
+	case "referencehash":
+		return &kafka.ReferenceHash{}
+	case "roundrobin":
+		return &kafka.RoundRobin{}
+	case "murmur2":
+		return &kafka.Murmur2Balancer{}
+	case "crc32":
+		return &kafka.CRC32Balancer{}
+	default:
+		return &kafka.Hash{} // 默认使用 Hash 分区策略
+	}
 }

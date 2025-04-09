@@ -33,27 +33,27 @@ services:
   me-redis-node-1:
     image: redis:7.0
     container_name: me-redis-node-1
-    command: redis-server --port 6379 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    command: redis-server --port 8479 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
     ports:
-      - "6379:6379"
+      - "8479:8479"
     volumes:
       - me-redis-node-1-data:/data
 
   me-redis-node-2:
     image: redis:7.0
     container_name: me-redis-node-2
-    command: redis-server --port 6380 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    command: redis-server --port 8480 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
     ports:
-      - "6380:6380"
+      - "8480:8480"
     volumes:
       - me-redis-node-2-data:/data
 
   me-redis-node-3:
     image: redis:7.0
     container_name: me-redis-node-3
-    command: redis-server --port 6381 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    command: redis-server --port 8481 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
     ports:
-      - "6381:6381"
+      - "8481:8481"
     volumes:
         - me-redis-node-3-data:/data
 
@@ -65,17 +65,17 @@ services:
       - me-redis-node-2
       - me-redis-node-3
     command: >
-      bash -c "echo yes | redis-cli --cluster create me-redis-node-1:6379 me-redis-node-2:6380 me-redis-node-3:6381 --cluster-replicas 0"
+      bash -c "echo yes | redis-cli -a redis123 --cluster create me-redis-node-1:8479 me-redis-node-2:8480 me-redis-node-3:8481 --cluster-replicas 0"
     restart: "no"
 
   me-jaeger:
     image: jaegertracing/all-in-one:latest
-    container_name: mg-jaeger
+    container_name: me-jaeger
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     ports:
-      - "8330:16686"  # Jaeger UI 端口
-      - "8331:4318"   # OTLP HTTP 端口
+      - "8430:16686"  # Jaeger UI 端口
+      - "8431:4318"   # OTLP HTTP 端口
     volumes:
       - me-jaeger-data:/data
 

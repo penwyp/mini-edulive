@@ -1,8 +1,8 @@
-server:
+app:
   port: "8083"
 logger:
   level: debug
-  filepath: logs/edulive_server.log
+  filepath: logs/edulive_gateway.log
 websocket:
   enabled: true
   max_conns: 1000000
@@ -11,6 +11,7 @@ kafka:
   brokers:
     - "10.2.103.35:9092"
   topic: "bullet_topic"
+  balancer: "hash"
 redis:
   addr: "127.0.0.1:6379"
   password: "redis123"

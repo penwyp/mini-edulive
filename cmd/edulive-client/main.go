@@ -9,11 +9,11 @@ import (
 )
 
 func main() {
-	configMgr := config.InitConfig("config/client_config.yaml")
+	configMgr := config.InitConfig("config/config_client.yaml")
 	cfg := configMgr.GetConfig()
 
 	logger.Info("Starting edulive client",
-		zap.String("port", cfg.Server.Port),
+		zap.String("port", cfg.App.Port),
 		zap.Bool("websocket_enabled", cfg.WebSocket.Enabled),
 		zap.Strings("kafka_brokers", cfg.Kafka.Brokers),
 	)
