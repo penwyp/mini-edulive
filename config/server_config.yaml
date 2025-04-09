@@ -9,7 +9,7 @@ websocket:
   idle_timeout: 5m
 kafka:
   brokers:
-    - "127.0.0.1:9092"
+    - "10.2.103.35:9092"
   topic: "bullet_topic"
 redis:
   addr: "127.0.0.1:6379"

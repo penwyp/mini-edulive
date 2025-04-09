@@ -1,0 +1,1 @@
+docker exec -it me-kafka kafka-topics --create --topic bullet_topic --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092

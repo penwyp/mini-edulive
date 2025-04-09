@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"context"
+	"encoding/binary"
 	"net/http"
 	"sync"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
 
@@ -15,13 +18,22 @@ import (
 type Server struct {
 	pool   *ConnPool
 	config *config.Config
+	kafka  *kafka.Writer // Kafka 生产者
 }
 
 // NewServer 创建 WebSocket 服务端
 func NewServer(cfg *config.Config) *Server {
+	// 初始化 Kafka Writer
+	kafkaWriter := &kafka.Writer{
+		Addr:     kafka.TCP(cfg.Kafka.Brokers...), // 使用配置中的 Kafka Brokers
+		Topic:    cfg.Kafka.Topic,                 // 使用配置中的 Kafka Topic
+		Balancer: &kafka.Hash{},                   // 使用 Hash 分区策略，确保同一 ChannelID 分配到同一分区
+	}
+
 	return &Server{
 		pool:   NewConnPool(cfg),
 		config: cfg,
+		kafka:  kafkaWriter,
 	}
 }
 
@@ -46,7 +58,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	// 添加连接到池中
-	userID := uint64(0) // 这里假设从请求头或认证中获取用户ID
+	userID := uint64(0) // 初始假设用户ID未知
 	s.pool.Add(userID, conn)
 
 	for {
@@ -73,13 +85,46 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// 处理消息
 		switch msg.Type {
 		case protocol.TypeBullet:
-			logger.Info("Received bullet message", zap.Uint64("userID", msg.UserID), zap.Uint64("channelID", msg.ChannelID), zap.String("content", msg.Content))
-			// TODO: 将消息发送到 Kafka（交给 processor 处理）
+			logger.Info("Received bullet message",
+				zap.Uint64("userID", msg.UserID),
+				zap.Uint64("channelID", msg.ChannelID),
+				zap.String("content", msg.Content))
+
+			// 将消息转发到 Kafka，按照 ChannelID 分区
+			err = s.sendToKafka(r.Context(), msg)
+			if err != nil {
+				logger.Error("Failed to send message to Kafka", zap.Error(err))
+				continue
+			}
+			logger.Info("Message sent to Kafka",
+				zap.Uint64("userID", msg.UserID),
+				zap.Uint64("channelID", msg.ChannelID))
+
 		case protocol.TypeHeartbeat:
 			logger.Info("Received heartbeat", zap.Uint64("userID", msg.UserID))
 			// TODO: 更新连接活跃状态
 		}
 	}
+}
+
+// sendToKafka 将消息发送到 Kafka，按照 ChannelID 分区
+func (s *Server) sendToKafka(ctx context.Context, msg *protocol.BulletMessage) error {
+	data, err := msg.Encode()
+	if err != nil {
+		return err
+	}
+
+	// 使用 ChannelID 作为 Key，确保同一直播间的消息分配到同一分区
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, msg.ChannelID)
+
+	err = s.kafka.WriteMessages(ctx,
+		kafka.Message{
+			Key:   key,  // 使用 ChannelID 作为分区键
+			Value: data, // 二进制消息内容
+		},
+	)
+	return err
 }
 
 // ConnPool 连接池
