@@ -27,7 +27,7 @@ func NewServer(cfg *config.Config) *Server {
 	kafkaWriter := &kafka.Writer{
 		Addr:     kafka.TCP(cfg.Kafka.Brokers...), // 使用配置中的 Kafka Brokers
 		Topic:    cfg.Kafka.Topic,                 // 使用配置中的 Kafka Topic
-		Balancer: getBalancer(cfg.Kafka.Balancer), // 使用 Hash 分区策略，确保同一 ChannelID 分配到同一分区
+		Balancer: getBalancer(cfg.Kafka.Balancer), // 使用 Hash 分区策略，确保同一 LiveID 分配到同一分区
 	}
 
 	return &Server{
@@ -87,10 +87,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case protocol.TypeBullet:
 			logger.Info("Received bullet message",
 				zap.Uint64("userID", msg.UserID),
-				zap.Uint64("channelID", msg.ChannelID),
+				zap.Uint64("liveID", msg.LiveID),
 				zap.String("content", msg.Content))
 
-			// 将消息转发到 Kafka，按照 ChannelID 分区
+			// 将消息转发到 Kafka，按照 LiveID 分区
 			err = s.sendToKafka(r.Context(), msg)
 			if err != nil {
 				logger.Error("Failed to send message to Kafka", zap.Error(err))
@@ -98,7 +98,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			logger.Info("Message sent to Kafka",
 				zap.Uint64("userID", msg.UserID),
-				zap.Uint64("channelID", msg.ChannelID))
+				zap.Uint64("liveID", msg.LiveID))
 
 		case protocol.TypeHeartbeat:
 			logger.Info("Received heartbeat", zap.Uint64("userID", msg.UserID))
@@ -107,20 +107,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// sendToKafka 将消息发送到 Kafka，按照 ChannelID 分区
+// sendToKafka 将消息发送到 Kafka，按照 LiveID 分区
 func (s *Server) sendToKafka(ctx context.Context, msg *protocol.BulletMessage) error {
 	data, err := msg.Encode()
 	if err != nil {
 		return err
 	}
 
-	// 使用 ChannelID 作为 Key，确保同一直播间的消息分配到同一分区
+	// 使用 LiveID 作为 Key，确保同一直播间的消息分配到同一分区
 	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, msg.ChannelID)
+	binary.BigEndian.PutUint64(key, msg.LiveID)
 
 	err = s.kafka.WriteMessages(ctx,
 		kafka.Message{
-			Key:   key,  // 使用 ChannelID 作为分区键
+			Key:   key,  // 使用 LiveID 作为分区键
 			Value: data, // 二进制消息内容
 		},
 	)

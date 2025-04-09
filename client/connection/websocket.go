@@ -13,10 +13,10 @@ import (
 
 // Client WebSocket 客户端
 type Client struct {
-	conn      *websocket.Conn
-	config    *config.Config
-	channelId uint64
-	userID    uint64
+	conn   *websocket.Conn
+	config *config.Config
+	liveId uint64
+	userID uint64
 }
 
 // NewClient 创建 WebSocket 客户端
@@ -26,16 +26,16 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		conn:      conn,
-		config:    cfg,
-		userID:    cfg.Client.UserID,
-		channelId: cfg.Client.ChannelID,
+		conn:   conn,
+		config: cfg,
+		userID: cfg.Client.UserID,
+		liveId: cfg.Client.LiveID,
 	}, nil
 }
 
 // SendBullet 发送弹幕消息
 func (c *Client) SendBullet(content string) error {
-	msg := protocol.NewBulletMessage(c.channelId, c.userID, content)
+	msg := protocol.NewBulletMessage(c.liveId, c.userID, content)
 	data, err := msg.Encode()
 	if err != nil {
 		return err
