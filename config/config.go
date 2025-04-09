@@ -49,6 +49,7 @@ type Server struct {
 
 // Client 客户端专用配置
 type Client struct {
+	ChannelID    uint64        `mapstructure:"channelID"`    // 直播间 ID
 	UserID       uint64        `mapstructure:"userID"`       // 用户 ID
 	SendInterval time.Duration `mapstructure:"sendInterval"` // 发送间隔
 	MaxRetries   int           `mapstructure:"maxRetries"`   // 重试次数

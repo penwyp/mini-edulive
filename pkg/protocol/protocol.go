@@ -21,6 +21,7 @@ type BulletMessage struct {
 	Type       uint8  // 消息类型（0x01: 弹幕, 0x02: 心跳）
 	Timestamp  int64  // 时间戳（Unix 毫秒）
 	UserID     uint64 // 用户ID
+	ChannelID  uint64 // 直播间ID
 	ContentLen uint16 // 内容长度
 	Content    string // 内容（UTF-8 编码）
 }
@@ -43,6 +44,9 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 		return nil, err
 	}
 	if err := binary.Write(buf, binary.BigEndian, msg.UserID); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.BigEndian, msg.ChannelID); err != nil {
 		return nil, err
 	}
 	if err := binary.Write(buf, binary.BigEndian, msg.ContentLen); err != nil {
@@ -98,6 +102,11 @@ func Decode(data []byte) (*BulletMessage, error) {
 		return nil, err
 	}
 
+	// 读取直播间ID
+	if err := binary.Read(reader, binary.BigEndian, &msg.ChannelID); err != nil {
+		return nil, err
+	}
+
 	// 读取内容长度
 	if err := binary.Read(reader, binary.BigEndian, &msg.ContentLen); err != nil {
 		return nil, err
@@ -114,13 +123,14 @@ func Decode(data []byte) (*BulletMessage, error) {
 }
 
 // NewBulletMessage 创建弹幕消息
-func NewBulletMessage(userID uint64, content string) *BulletMessage {
+func NewBulletMessage(channelId, userID uint64, content string) *BulletMessage {
 	return &BulletMessage{
 		Magic:      MagicNumber,
 		Version:    CurrentVersion,
 		Type:       TypeBullet,
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     userID,
+		ChannelID:  channelId,
 		ContentLen: uint16(len(content)),
 		Content:    content,
 	}

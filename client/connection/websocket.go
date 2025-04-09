@@ -13,9 +13,10 @@ import (
 
 // Client WebSocket 客户端
 type Client struct {
-	conn   *websocket.Conn
-	config *config.Config
-	userID uint64
+	conn      *websocket.Conn
+	config    *config.Config
+	channelId uint64
+	userID    uint64
 }
 
 // NewClient 创建 WebSocket 客户端
@@ -25,15 +26,16 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		conn:   conn,
-		config: cfg,
-		userID: cfg.Client.UserID,
+		conn:      conn,
+		config:    cfg,
+		userID:    cfg.Client.UserID,
+		channelId: cfg.Client.ChannelID,
 	}, nil
 }
 
 // SendBullet 发送弹幕消息
 func (c *Client) SendBullet(content string) error {
-	msg := protocol.NewBulletMessage(c.userID, content)
+	msg := protocol.NewBulletMessage(c.channelId, c.userID, content)
 	data, err := msg.Encode()
 	if err != nil {
 		return err
@@ -53,6 +55,7 @@ func (c *Client) SendHeartbeat() error {
 	msg := protocol.NewHeartbeatMessage(c.userID)
 	data, err := msg.Encode()
 	if err != nil {
+		logger.Warn("Failed to encode heartbeat message", zap.Error(err))
 		return err
 	}
 
@@ -61,12 +64,14 @@ func (c *Client) SendHeartbeat() error {
 		logger.Warn("Failed to send heartbeat", zap.Error(err))
 		return err
 	}
+
+	logger.Info("Heartbeat sent", zap.Uint64("userID", c.userID))
 	return nil
 }
 
 // StartHeartbeat 启动心跳循环
 func (c *Client) StartHeartbeat() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -74,6 +79,7 @@ func (c *Client) StartHeartbeat() {
 			logger.Error("Heartbeat failed", zap.Error(err))
 			return
 		}
+		ticker.Reset(5 * time.Second)
 	}
 }
 

@@ -73,10 +73,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// 处理消息
 		switch msg.Type {
 		case protocol.TypeBullet:
-			logger.Info("Received bullet message", zap.Uint64("userID", msg.UserID), zap.String("content", msg.Content))
+			logger.Info("Received bullet message", zap.Uint64("userID", msg.UserID), zap.Uint64("channelID", msg.ChannelID), zap.String("content", msg.Content))
 			// TODO: 将消息发送到 Kafka（交给 processor 处理）
 		case protocol.TypeHeartbeat:
-			logger.Debug("Received heartbeat", zap.Uint64("userID", msg.UserID))
+			logger.Info("Received heartbeat", zap.Uint64("userID", msg.UserID))
 			// TODO: 更新连接活跃状态
 		}
 	}

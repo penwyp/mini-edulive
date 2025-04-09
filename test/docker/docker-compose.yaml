@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  me-zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: me-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - me-zookeeper-data:/var/lib/zookeeper/data
+
+  me-kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: me-kafka
+    depends_on:
+      - me-zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: me-zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - me-kafka-data:/var/lib/kafka/data
+
+  me-redis-node-1:
+    image: redis:7.0
+    container_name: me-redis-node-1
+    command: redis-server --port 6379 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    ports:
+      - "6379:6379"
+    volumes:
+      - me-redis-node-1-data:/data
+
+  me-redis-node-2:
+    image: redis:7.0
+    container_name: me-redis-node-2
+    command: redis-server --port 6380 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    ports:
+      - "6380:6380"
+    volumes:
+      - me-redis-node-2-data:/data
+
+  me-redis-node-3:
+    image: redis:7.0
+    container_name: me-redis-node-3
+    command: redis-server --port 6381 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    ports:
+      - "6381:6381"
+    volumes:
+        - me-redis-node-3-data:/data
+
+  redis-cluster-creator:
+    image: redis:7.0
+    container_name: redis-cluster-creator
+    depends_on:
+      - me-redis-node-1
+      - me-redis-node-2
+      - me-redis-node-3
+    command: >
+      bash -c "echo yes | redis-cli --cluster create me-redis-node-1:6379 me-redis-node-2:6380 me-redis-node-3:6381 --cluster-replicas 0"
+    restart: "no"
+
+  me-jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: mg-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "8330:16686"  # Jaeger UI 端口
+      - "8331:4318"   # OTLP HTTP 端口
+    volumes:
+      - me-jaeger-data:/data
+
+volumes:
+  me-zookeeper-data:  # 新增 Zookeeper 数据卷
+  me-kafka-data:  # 新增 Kafka 数据卷
+  me-redis-node-1-data:  # 新增 Redis 节点 1 数据卷
+  me-redis-node-2-data:  # 新增 Redis 节点 2 数据卷
+  me-redis-node-3-data:  # 新增 Redis 节点 3 数据卷
+  me-jaeger-data:  # 新增 Jaeger 数据卷

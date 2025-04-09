@@ -4,6 +4,7 @@ logger:
 websocket:
   endpoint: "ws://localhost:8083/bullet"
 client:
-  userId: 10001
+  channelId: 10000
+  userId: 20001
   sendInterval: 100ms
   maxRetries: 3
