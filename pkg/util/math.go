@@ -1,5 +1,7 @@
 package util
 
+import "strconv"
+
 // Max 计算最大值
 func Max(weights []int) int {
 	if len(weights) == 0 {
@@ -32,4 +34,9 @@ func GCDTwo(a, b int) int {
 		a, b = b, a%b
 	}
 	return a
+}
+
+// FormatUint64ToString format uint64 to string
+func FormatUint64ToString(num uint64) string {
+	return strconv.FormatUint(num, 10)
 }

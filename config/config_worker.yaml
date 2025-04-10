@@ -1,6 +1,6 @@
 type: worker
 app:
-  port: "8084"  # Optional, if worker exposes metrics endpoint
+  port: "8484"  # Optional, if worker exposes metrics endpoint
 logger:
   level: debug
   filePath: logs/edulive_worker.log
@@ -10,7 +10,10 @@ kafka:
   topic: "bullet_topic"
   groupID: "worker-group"  # Consumer group for load balancing
 redis:
-  addr: "127.0.0.1:6379"
+  addrs:
+    - "127.0.0.1:8479"
+    - "127.0.0.1:8480"
+    - "127.0.0.1:8481"
   password: "redis123"
   db: 0
 observability:

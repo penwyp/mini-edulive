@@ -1,5 +1,6 @@
+type: gateway
 app:
-  port: "8083"
+  port: "8483"
 logger:
   level: debug
   filepath: logs/edulive_gateway.log

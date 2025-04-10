@@ -86,9 +86,9 @@ type Kafka struct {
 
 // Redis Redis 配置
 type Redis struct {
-	Addr     string `mapstructure:"addr"`
-	Password string `mapstructure:"password"`
-	DB       int    `mapstructure:"db"`
+	Addrs    []string `mapstructure:"addrs"` // Change from Addr to Addrs for cluster
+	Password string   `mapstructure:"password"`
+	DB       int      `mapstructure:"db"`
 }
 
 // Distributor 分发配置
@@ -286,7 +286,7 @@ func (cm *ConfigManager) SaveConfigToFile(cfg *Config, filePath string) error {
 // setDefaultValues 设置默认配置值
 func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("type", "gateway")
-	v.SetDefault("app.port", "8083")
+	v.SetDefault("app.port", "8483")
 	v.SetDefault("app.ginMode", "release")
 
 	v.SetDefault("logger.level", "info")
@@ -301,14 +301,14 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("websocket.idleTimeout", 5*time.Minute)
 	v.SetDefault("websocket.readBuffer", 1024)
 	v.SetDefault("websocket.writeBuffer", 1024)
-	v.SetDefault("websocket.endpoint", "ws://localhost:8083")
+	v.SetDefault("websocket.endpoint", "ws://localhost:8483")
 	v.SetDefault("websocket.protocolVersion", protocol.CurrentVersion)
 
 	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
 	v.SetDefault("kafka.topic", "bullet_topic")
 	v.SetDefault("kafka.balancer", "hash")
 
-	v.SetDefault("redis.addr", "localhost:6379")
+	v.SetDefault("redis.addrs", []string{"localhost:8479", "localhost:8480", "localhost:8481"})
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
 
@@ -358,8 +358,8 @@ func validateConfig(cfg *Config) error {
 		if cfg.Kafka.Topic == "" {
 			return fmt.Errorf("kafka topic cannot be empty")
 		}
-		if cfg.Redis.Addr == "" {
-			return fmt.Errorf("redis addr cannot be empty")
+		if len(cfg.Redis.Addrs) == 0 {
+			return fmt.Errorf("redis addrs cannot be empty")
 		}
 		if cfg.Distributor.QUIC.Enabled && cfg.Distributor.QUIC.Addr == "" {
 			return fmt.Errorf("quic addr cannot be empty when enabled")
@@ -387,8 +387,8 @@ func validateConfig(cfg *Config) error {
 		if cfg.Kafka.GroupID == "" {
 			return fmt.Errorf("kafka groupID cannot be empty")
 		}
-		if cfg.Redis.Addr == "" {
-			return fmt.Errorf("redis addr cannot be empty")
+		if len(cfg.Redis.Addrs) == 0 {
+			return fmt.Errorf("redis addrs cannot be empty")
 		}
 	}
 
@@ -407,7 +407,7 @@ func InitTestConfigManager() {
 	configMgr = &ConfigManager{
 		config: &Config{
 			App: App{
-				Port:    "8083",
+				Port:    "8483",
 				GinMode: "debug",
 			},
 			Logger: Logger{
@@ -424,7 +424,8 @@ func InitTestConfigManager() {
 				Topic:   "bullet_test",
 			},
 			Redis: Redis{
-				Addr: "localhost:6379",
+				Addrs:    []string{"localhost:8479", "localhost:8480", "localhost:8481"},
+				Password: "",
 			},
 			Distributor: Distributor{
 				QUIC: QUIC{
