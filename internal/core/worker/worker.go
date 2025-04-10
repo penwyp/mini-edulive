@@ -2,11 +2,12 @@ package worker
 
 import (
 	"context"
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"sync"
 	"time"
 
 	"github.com/penwyp/mini-edulive/config"
-	rediskeys "github.com/penwyp/mini-edulive/pkg/cache"
+	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
 	"github.com/redis/go-redis/v9"
@@ -18,39 +19,21 @@ type Worker struct {
 	config      *config.Config
 	kafkaReader *kafka.Reader
 	redisClient *redis.ClusterClient
-	keyBuilder  *rediskeys.RedisKeyBuilder // Add key builder
+	keyBuilder  *pkgcache.RedisKeyBuilder // Add key builder
 	wg          sync.WaitGroup
 }
 
 func NewWorker(cfg *config.Config) (*Worker, error) {
-	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  cfg.Kafka.Brokers,
-		Topic:    cfg.Kafka.Topic,
-		GroupID:  cfg.Kafka.GroupID,
-		MinBytes: 10e3,
-		MaxBytes: 10e6,
-	})
-	logger.Debug("Kafka reader initialized",
-		zap.Strings("brokers", cfg.Kafka.Brokers),
-		zap.String("topic", cfg.Kafka.Topic),
-		zap.String("groupID", cfg.Kafka.GroupID))
-
-	redisClient := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:    cfg.Redis.Addrs,
-		Password: cfg.Redis.Password,
-	})
-	if err := redisClient.Ping(context.Background()).Err(); err != nil {
-		logger.Error("Failed to ping Redis Cluster", zap.Error(err))
+	redisClient, err := pkgcache.NewRedisClusterClient(&cfg.Redis)
+	if err != nil {
+		logger.Error("Failed to create Redis client", zap.Error(err))
 		return nil, err
 	}
-	logger.Debug("Redis Cluster client initialized",
-		zap.Strings("addrs", cfg.Redis.Addrs))
-
 	return &Worker{
 		config:      cfg,
-		kafkaReader: kafkaReader,
+		kafkaReader: pkgkafka.NewReader(&cfg.Kafka),
 		redisClient: redisClient,
-		keyBuilder:  rediskeys.NewRedisKeyBuilder(), // Initialize key builder
+		keyBuilder:  pkgcache.NewRedisKeyBuilder(), // Initialize key builder
 	}, nil
 }
 

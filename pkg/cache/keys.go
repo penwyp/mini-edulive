@@ -1,4 +1,4 @@
-package rediskeys
+package cache
 
 import "fmt"
 

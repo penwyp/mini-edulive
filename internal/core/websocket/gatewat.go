@@ -3,14 +3,15 @@ package websocket
 import (
 	"context"
 	"encoding/binary"
+	"github.com/segmentio/kafka-go"
 	"net/http"
 	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/penwyp/mini-edulive/config"
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
-	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
 
@@ -23,17 +24,10 @@ type Server struct {
 
 // NewServer 创建 WebSocket 服务端
 func NewServer(cfg *config.Config) *Server {
-	// 初始化 Kafka Writer
-	kafkaWriter := &kafka.Writer{
-		Addr:     kafka.TCP(cfg.Kafka.Brokers...), // 使用配置中的 Kafka Brokers
-		Topic:    cfg.Kafka.Topic,                 // 使用配置中的 Kafka Topic
-		Balancer: getBalancer(cfg.Kafka.Balancer), // 使用 Hash 分区策略，确保同一 LiveID 分配到同一分区
-	}
-
 	return &Server{
 		pool:   NewConnPool(cfg),
 		config: cfg,
-		kafka:  kafkaWriter,
+		kafka:  pkgkafka.NewWriter(&cfg.Kafka), // 使用新抽取的函数,
 	}
 }
 

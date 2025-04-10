@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"os"
 	"os/signal"
 	"sync"
@@ -79,7 +80,7 @@ func main() {
 // checkKafkaMessageCount queries and logs the total number of messages in the Kafka topic
 func checkKafkaMessageCount(cfg *config.Config) {
 	// Kafka connection
-	conn, err := kafka.Dial("tcp", cfg.Kafka.Brokers[0])
+	conn, err := pkgkafka.Dial(cfg.Kafka.Brokers[0])
 	if err != nil {
 		logger.Error("Failed to connect to Kafka for offset check", zap.Error(err))
 		return
