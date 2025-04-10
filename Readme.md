@@ -26,26 +26,27 @@
 ## 2. 系统架构设计
 
 ### 2.1 系统组件
-| 组件名               | 职责说明                                  |
-|----------------------|---------------------------------------|
-| `edulive-gateway`    | WebSocket/QUIC接入，管理连接、协议解析、路由消息至Kafka |
-| `edulive-worker`     | 消费Kafka消息，执行解码、过滤、入库及排行榜更新            |
-| `edulive-dispatcher` | 从Redis拉取实时/热门弹幕，合并压缩后推送至客户端           |
-| Redis Cluster        | 缓存排行榜、弹幕池，提供高并发读写                     |
-| Kafka                | 缓冲弹幕消息流，实现生产者与消费者异步解耦                 |
-| CDN/QUIC             | 分发弹幕至客户端，降低核心服务压力                     |
+| 组件名                        | 职责说明                                  |
+|----------------------------|---------------------------------------|
+| `edulive-gateway`          | WebSocket/QUIC接入，管理连接、协议解析、路由消息至Kafka |
+| `edulive-client`           | 创建房间，发送弹幕，查看弹幕                        |
+| `edulive-worker`           | 消费Kafka消息，执行解码、过滤、入库及排行榜更新            |
+| `edulive-dispatcher`       | 从Redis拉取实时/热门弹幕，合并压缩后推送至客户端           |
+| Redis Cluster              | 缓存排行榜、弹幕池，提供高并发读写                     |
+| Kafka                      | 缓冲弹幕消息流，实现生产者与消费者异步解耦                 |
+| CDN/QUIC                   | 分发弹幕至客户端，降低核心服务压力                     |
 | OpenTelemetry + Prometheus | 全链路追踪、延迟监控、性能指标采集                     |
 
 ### 2.2 架构图
 ```
-客户端 → [edulive-gateway] → Kafka（按直播间分区）
+[edulive-client] → [edulive-gateway] → Kafka（按直播间分区）
        ↘ [edulive-worker] → Redis Cluster
-       ↘ [edulive-dispatcher] → CDN/QUIC → 客户端
+       ↘ [edulive-dispatcher] → CDN/QUIC → [edulive-client]
 监控：[OpenTelemetry + Prometheus]
 ```
 
 ### 2.3 数据流
-1. **实时弹幕流**：`客户端 → edulive-gateway → Kafka → edulive-worker → Redis → edulive-dispatcher → 客户端`
+1. **实时弹幕流**：`edulive-client → edulive-gateway → Kafka → edulive-worker → Redis → edulive-dispatcher → edulive-client`
 2. **监控流**：各组件通过Prometheus Exporter暴露指标，OpenTelemetry实现全链路追踪。
 3. **配置流**：支持本地热更新文件或Admin API动态管理配置。
 
@@ -89,11 +90,11 @@ return redis.call("ZINCRBY", KEYS[2], ARGV[1], ARGV[2])
 ```
 
 ### 3.3 edulive-dispatcher
-- **职责**：管理QUIC连接，并每10ms从Redis拉取Top10000弹幕，合并压缩（zstd）后推送至客户端。
+- **职责**：管理QUIC连接，并每10ms从Redis拉取Top10000弹幕，合并压缩（zstd）后推送至客户端edulive-client。
 - **推送策略**：
   - Dispatcher节点注册到Redis，维护心跳。
-  - 客户端连接时，随机选择Dispatcher。
-  - 由Dispatcher直连客户端，进行弹幕推送。
+  - 客户端edulive-client连接时，随机选择Dispatcher。
+  - 由Dispatcher直连客户端edulive-client，进行弹幕推送。
 
 
 #### 代码实现：路由表管理

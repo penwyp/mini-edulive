@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/quic-go/quic-go"
 	"github.com/penwyp/mini-edulive/config"
 	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/quic-go/quic-go"
 	"github.com/redis/go-redis/v9"
 	"github.com/tinylib/msgp/msgp"
 	"go.uber.org/zap"

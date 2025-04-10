@@ -19,15 +19,14 @@ var configMgr *ConfigManager
 
 // ConfigManager 管理配置及其变更通知
 type ConfigManager struct {
-	config *Config
-	mutex  sync.RWMutex
-
+	config     *Config
+	mutex      sync.RWMutex
 	ConfigChan chan *Config // 用于通知配置变更
 }
 
 // Config 定义弹幕系统的配置结构体
 type Config struct {
-	Type          string        `mapstructure:"type"` // "gateway" 或 "client" 或 "worker"
+	Type          string        `mapstructure:"type"` // "gateway", "client", "worker" 或 "dispatcher"
 	App           App           `mapstructure:"app"`
 	Logger        Logger        `mapstructure:"logger"`
 	WebSocket     WebSocket     `mapstructure:"websocket"`
@@ -49,10 +48,10 @@ type App struct {
 
 // Client 客户端专用配置
 type Client struct {
-	LiveID       uint64        `mapstructure:"liveID"`       // 直播间 ID
-	UserID       uint64        `mapstructure:"userID"`       // 用户 ID
-	SendInterval time.Duration `mapstructure:"sendInterval"` // 发送间隔
-	MaxRetries   int           `mapstructure:"maxRetries"`   // 重试次数
+	LiveID       uint64        `mapstructure:"liveID"`
+	UserID       uint64        `mapstructure:"userID"`
+	SendInterval time.Duration `mapstructure:"sendInterval"`
+	MaxRetries   int           `mapstructure:"maxRetries"`
 }
 
 // Logger 日志配置
@@ -73,20 +72,20 @@ type WebSocket struct {
 	ReadBuffer      int           `mapstructure:"readBuffer"`
 	WriteBuffer     int           `mapstructure:"writeBuffer"`
 	Endpoint        string        `mapstructure:"endpoint"`
-	ProtocolVersion uint8         `mapstructure:"protocolVersion"` // 新增：协议版本，默认 0x01
+	ProtocolVersion uint8         `mapstructure:"protocolVersion"`
 }
 
 // Kafka Kafka 配置
 type Kafka struct {
 	Brokers  []string `mapstructure:"brokers"`
 	Topic    string   `mapstructure:"topic"`
-	Balancer string   `mapstructure:"balancer"` // 分区策略
-	GroupID  string   `mapstructure:"groupID"`  // Add this
+	Balancer string   `mapstructure:"balancer"`
+	GroupID  string   `mapstructure:"groupID"`
 }
 
 // Redis Redis 配置
 type Redis struct {
-	Addrs    []string `mapstructure:"addrs"` // Change from Addr to Addrs for cluster
+	Addrs    []string `mapstructure:"addrs"`
 	Password string   `mapstructure:"password"`
 	DB       int      `mapstructure:"db"`
 }
@@ -177,7 +176,7 @@ func InitConfig(configFile string) *ConfigManager {
 
 	configMgr = &ConfigManager{
 		config:     cfg,
-		ConfigChan: make(chan *Config, 1), // 缓冲通道，避免阻塞
+		ConfigChan: make(chan *Config, 1),
 		mutex:      sync.RWMutex{},
 	}
 
@@ -254,8 +253,8 @@ func (cm *ConfigManager) SaveConfigToFile(cfg *Config, filePath string) error {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	// 使用 yaml.MapSlice 保持字段顺序
 	orderedData := yaml.MapSlice{
+		{Key: "type", Value: cfg.Type},
 		{Key: "app", Value: cfg.App},
 		{Key: "logger", Value: cfg.Logger},
 		{Key: "websocket", Value: cfg.WebSocket},
@@ -266,15 +265,14 @@ func (cm *ConfigManager) SaveConfigToFile(cfg *Config, filePath string) error {
 		{Key: "plugin", Value: cfg.Plugin},
 		{Key: "middleware", Value: cfg.Middleware},
 		{Key: "performance", Value: cfg.Performance},
+		{Key: "client", Value: cfg.Client},
 	}
 
-	// 序列化为 YAML 格式
 	out, err := yaml.Marshal(orderedData)
 	if err != nil {
 		return err
 	}
 
-	// 写入文件
 	if err := os.WriteFile(filePath, out, 0644); err != nil {
 		return err
 	}
@@ -343,62 +341,122 @@ func setDefaultValues(v *viper.Viper) {
 }
 
 // validateConfig 验证配置有效性
+// validateConfig 验证配置有效性
 func validateConfig(cfg *Config) error {
-	if cfg.Type != "gateway" && cfg.Type != "client" && cfg.Type != "worker" {
-		return fmt.Errorf("invalid config type: %s, must be 'gateway' or 'client' or 'worker'", cfg.Type)
+	// 检查配置类型
+	if err := checkConfigType(cfg.Type); err != nil {
+		return err
 	}
 
-	if cfg.Type == "gateway" {
-		if cfg.WebSocket.Enabled && cfg.WebSocket.MaxConns <= 0 {
-			return fmt.Errorf("websocket maxConns must be positive: %d", cfg.WebSocket.MaxConns)
-		}
-		if len(cfg.Kafka.Brokers) == 0 {
-			return fmt.Errorf("kafka brokers list cannot be empty")
-		}
-		if cfg.Kafka.Topic == "" {
-			return fmt.Errorf("kafka topic cannot be empty")
-		}
-		if len(cfg.Redis.Addrs) == 0 {
-			return fmt.Errorf("redis addrs cannot be empty")
-		}
-		if cfg.Distributor.QUIC.Enabled && cfg.Distributor.QUIC.Addr == "" {
-			return fmt.Errorf("quic addr cannot be empty when enabled")
-		}
-	} else if cfg.Type == "client" {
-		if cfg.WebSocket.Endpoint == "" {
-			return fmt.Errorf("websocket endpoint cannot be empty for client")
-		}
-		if !strings.HasPrefix(cfg.WebSocket.Endpoint, "ws://") && !strings.HasPrefix(cfg.WebSocket.Endpoint, "wss://") {
-			return fmt.Errorf("websocket endpoint must start with ws:// or wss://: %s", cfg.WebSocket.Endpoint)
-		}
-		if cfg.Client.SendInterval <= 0 {
-			return fmt.Errorf("client sendInterval must be positive: %s", cfg.Client.SendInterval)
-		}
-		if cfg.Client.MaxRetries < 0 {
-			return fmt.Errorf("client maxRetries cannot be negative: %d", cfg.Client.MaxRetries)
-		}
-	} else if cfg.Type == "worker" {
-		if len(cfg.Kafka.Brokers) == 0 {
-			return fmt.Errorf("kafka brokers list cannot be empty")
-		}
-		if cfg.Kafka.Topic == "" {
-			return fmt.Errorf("kafka topic cannot be empty")
-		}
-		if cfg.Kafka.GroupID == "" {
-			return fmt.Errorf("kafka groupID cannot be empty")
-		}
-		if len(cfg.Redis.Addrs) == 0 {
-			return fmt.Errorf("redis addrs cannot be empty")
-		}
+	// 公共验证
+	if err := validateWebSocket(cfg.WebSocket); err != nil {
+		return err
 	}
 
-	if cfg.WebSocket.IdleTimeout <= 0 {
-		return fmt.Errorf("websocket idleTimeout must be positive: %s", cfg.WebSocket.IdleTimeout)
-	}
-	if cfg.WebSocket.ReadBuffer <= 0 || cfg.WebSocket.WriteBuffer <= 0 {
-		return fmt.Errorf("websocket readBuffer and writeBuffer must be positive: %d, %d", cfg.WebSocket.ReadBuffer, cfg.WebSocket.WriteBuffer)
+	// 类型特定验证
+	typeValidators := map[string]func(*Config) error{
+		"gateway":    validateGateway,
+		"client":     validateClient,
+		"worker":     validateWorker,
+		"dispatcher": validateDispatcher,
 	}
 
+	if validator, exists := typeValidators[cfg.Type]; exists {
+		return validator(cfg)
+	}
+	return nil // 不应该发生，因为类型已在 checkConfigType 中验证
+}
+
+// checkConfigType 验证配置类型
+func checkConfigType(configType string) error {
+	validTypes := map[string]bool{
+		"gateway":    true,
+		"client":     true,
+		"worker":     true,
+		"dispatcher": true,
+	}
+	if !validTypes[configType] {
+		return fmt.Errorf("invalid config type: %s, must be 'gateway', 'client', 'worker', or 'dispatcher'", configType)
+	}
+	return nil
+}
+
+// validateWebSocket 验证 WebSocket 配置（公共）
+func validateWebSocket(ws WebSocket) error {
+	if ws.IdleTimeout <= 0 {
+		return fmt.Errorf("websocket idleTimeout must be positive: %s", ws.IdleTimeout)
+	}
+	if ws.ReadBuffer <= 0 || ws.WriteBuffer <= 0 {
+		return fmt.Errorf("websocket readBuffer and writeBuffer must be positive: %d, %d", ws.ReadBuffer, ws.WriteBuffer)
+	}
+	if ws.Enabled && ws.MaxConns <= 0 {
+		return fmt.Errorf("websocket maxConns must be positive when enabled: %d", ws.MaxConns)
+	}
+	return nil
+}
+
+// validateGateway 验证 gateway 类型配置
+func validateGateway(cfg *Config) error {
+	if len(cfg.Kafka.Brokers) == 0 {
+		return fmt.Errorf("kafka brokers list cannot be empty")
+	}
+	if cfg.Kafka.Topic == "" {
+		return fmt.Errorf("kafka topic cannot be empty")
+	}
+	if len(cfg.Redis.Addrs) == 0 {
+		return fmt.Errorf("redis addrs cannot be empty")
+	}
+	if cfg.Distributor.QUIC.Enabled && cfg.Distributor.QUIC.Addr == "" {
+		return fmt.Errorf("quic addr cannot be empty when enabled")
+	}
+	return nil
+}
+
+// validateClient 验证 client 类型配置
+func validateClient(cfg *Config) error {
+	if cfg.WebSocket.Endpoint == "" {
+		return fmt.Errorf("websocket endpoint cannot be empty for client")
+	}
+	if !strings.HasPrefix(cfg.WebSocket.Endpoint, "ws://") && !strings.HasPrefix(cfg.WebSocket.Endpoint, "wss://") {
+		return fmt.Errorf("websocket endpoint must start with ws:// or wss://: %s", cfg.WebSocket.Endpoint)
+	}
+	if cfg.Client.SendInterval <= 0 {
+		return fmt.Errorf("client sendInterval must be positive: %s", cfg.Client.SendInterval)
+	}
+	if cfg.Client.MaxRetries < 0 {
+		return fmt.Errorf("client maxRetries cannot be negative: %d", cfg.Client.MaxRetries)
+	}
+	return nil
+}
+
+// validateWorker 验证 worker 类型配置
+func validateWorker(cfg *Config) error {
+	if len(cfg.Kafka.Brokers) == 0 {
+		return fmt.Errorf("kafka brokers list cannot be empty")
+	}
+	if cfg.Kafka.Topic == "" {
+		return fmt.Errorf("kafka topic cannot be empty")
+	}
+	if cfg.Kafka.GroupID == "" {
+		return fmt.Errorf("kafka groupID cannot be empty")
+	}
+	if len(cfg.Redis.Addrs) == 0 {
+		return fmt.Errorf("redis addrs cannot be empty")
+	}
+	return nil
+}
+
+// validateDispatcher 验证 dispatcher 类型配置
+func validateDispatcher(cfg *Config) error {
+	if len(cfg.Redis.Addrs) == 0 {
+		return fmt.Errorf("redis addrs cannot be empty for dispatcher")
+	}
+	if cfg.Distributor.QUIC.Enabled && cfg.Distributor.QUIC.Addr == "" {
+		return fmt.Errorf("quic addr cannot be empty when enabled for dispatcher")
+	}
+	if cfg.App.Port == "" {
+		return fmt.Errorf("app port cannot be empty for dispatcher")
+	}
 	return nil
 }
 
@@ -406,6 +464,7 @@ func validateConfig(cfg *Config) error {
 func InitTestConfigManager() {
 	configMgr = &ConfigManager{
 		config: &Config{
+			Type: "gateway",
 			App: App{
 				Port:    "8483",
 				GinMode: "debug",
