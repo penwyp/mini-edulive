@@ -19,14 +19,7 @@ func main() {
 	cfg := configMgr.GetConfig()
 
 	// Initialize logger
-	logger.Init(config.Logger{
-		Level:      cfg.Logger.Level,
-		FilePath:   cfg.Logger.FilePath,
-		MaxSize:    cfg.Logger.MaxSize,
-		MaxBackups: cfg.Logger.MaxBackups,
-		MaxAge:     cfg.Logger.MaxAge,
-		Compress:   cfg.Logger.Compress,
-	})
+	logger.Init(cfg.Logger)
 	logger.Info("Starting edulive worker",
 		zap.Strings("kafka_brokers", cfg.Kafka.Brokers),
 		zap.String("kafka_topic", cfg.Kafka.Topic),

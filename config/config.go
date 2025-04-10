@@ -3,13 +3,13 @@ package config
 import (
 	"fmt"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v2"
@@ -165,17 +165,14 @@ func InitConfig(configFile string) *ConfigManager {
 	setDefaultValues(v)
 
 	if err := v.ReadInConfig(); err != nil {
-		logger.Error("Failed to read configuration file", zap.Error(err))
-		os.Exit(1)
+		log.Fatalf("Failed to read configuration file, %v", err)
 	}
 	if err := v.Unmarshal(cfg); err != nil {
-		logger.Error("Failed to unmarshal configuration", zap.Error(err))
-		os.Exit(1)
+		log.Fatalf("Failed to unmarshal configuration, %v", err)
 	}
 
 	if err := validateConfig(cfg); err != nil {
-		logger.Error("Configuration validation failed", zap.Error(err))
-		os.Exit(1)
+		log.Fatalf("Configuration validation failed, %v", err)
 	}
 
 	configMgr = &ConfigManager{
@@ -187,7 +184,7 @@ func InitConfig(configFile string) *ConfigManager {
 	// 监听配置文件变化以实现热更新
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
-		logger.Info("Configuration file changed", zap.String("file", e.Name))
+		log.Printf("Configuration file changed, file:%s", e.Name)
 		newCfg := &Config{}
 
 		newV := viper.New()
@@ -196,16 +193,16 @@ func InitConfig(configFile string) *ConfigManager {
 		setDefaultValues(newV)
 
 		if err := newV.ReadInConfig(); err != nil {
-			logger.Error("Failed to read configuration file", zap.Error(err))
+			log.Fatalf("Failed to read configuration file", zap.Error(err))
 			return
 		}
 		if err := newV.Unmarshal(newCfg); err != nil {
-			logger.Error("Failed to unmarshal configuration", zap.Error(err))
+			log.Fatalf("Failed to unmarshal configuration", zap.Error(err))
 			return
 		}
 
 		if err := validateConfig(newCfg); err != nil {
-			logger.Error("Configuration validation failed on reload", zap.Error(err))
+			log.Fatalf("Configuration validation failed on reload", zap.Error(err))
 			return
 		}
 
@@ -216,9 +213,9 @@ func InitConfig(configFile string) *ConfigManager {
 		// 通知配置变更
 		select {
 		case configMgr.ConfigChan <- newCfg:
-			logger.Info("Configuration reload notification sent")
+			log.Println("Configuration reload notification sent")
 		default:
-			logger.Warn("Config channel full, skipping notification")
+			log.Println("Config channel full, skipping notification")
 		}
 	})
 
@@ -282,7 +279,7 @@ func (cm *ConfigManager) SaveConfigToFile(cfg *Config, filePath string) error {
 		return err
 	}
 
-	logger.Info("Configuration saved to file", zap.String("path", filePath))
+	log.Println("Configuration saved to file", zap.String("path", filePath))
 	return nil
 }
 

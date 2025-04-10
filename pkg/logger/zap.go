@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"github.com/penwyp/mini-edulive/config"
 	"os"
 	"sync"
 	"time"
@@ -23,16 +24,6 @@ var (
 	loggerMutex    sync.Once
 )
 
-// Config 日志配置结构体
-type Config struct {
-	Level      string `mapstructure:"level"`      // 日志级别 (debug, info, warn, error)
-	FilePath   string `mapstructure:"filePath"`   // 日志文件路径
-	MaxSize    int    `mapstructure:"maxSize"`    // 单个日志文件最大大小 (MB)
-	MaxBackups int    `mapstructure:"maxBackups"` // 保留的旧日志文件数
-	MaxAge     int    `mapstructure:"maxAge"`     // 日志文件保留天数
-	Compress   bool   `mapstructure:"compress"`   // 是否压缩旧日志文件
-}
-
 func InitTestLogger() (*Logger, *observer.ObservedLogs) {
 	// 配置 Zap 的核心组件
 	obsCore, recorded := observer.New(zapcore.DebugLevel)
@@ -47,7 +38,7 @@ func InitTestLogger() (*Logger, *observer.ObservedLogs) {
 }
 
 // Init 初始化全局日志实例
-func Init(cfg Config) *Logger {
+func Init(cfg config.Logger) *Logger {
 	loggerMutex.Do(func() {
 		// 配置 Zap 的核心组件
 		core := zapcore.NewCore(
@@ -71,7 +62,7 @@ func Init(cfg Config) *Logger {
 func GetLogger() *Logger {
 	if loggerInstance == nil {
 		// 如果未初始化，使用默认配置
-		return Init(Config{
+		return Init(config.Logger{
 			Level:      "info",
 			FilePath:   "logs/gateway.log",
 			MaxSize:    100, // 100 MB
@@ -109,7 +100,7 @@ func getEncoder() zapcore.Encoder {
 }
 
 // getWriteSyncer 配置日志输出（文件 + 控制台）
-func getWriteSyncer(cfg Config) zapcore.WriteSyncer {
+func getWriteSyncer(cfg config.Logger) zapcore.WriteSyncer {
 	// 配置日志文件滚动
 	fileWriter := &lumberjack.Logger{
 		Filename:   cfg.FilePath,
