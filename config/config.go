@@ -81,6 +81,7 @@ type Kafka struct {
 	Brokers  []string `mapstructure:"brokers"`
 	Topic    string   `mapstructure:"topic"`
 	Balancer string   `mapstructure:"balancer"` // 分区策略
+	GroupID  string   `mapstructure:"groupID"`  // Add this
 }
 
 // Redis Redis 配置
@@ -378,6 +379,19 @@ func validateConfig(cfg *Config) error {
 		}
 		if cfg.Client.MaxRetries < 0 {
 			return fmt.Errorf("client maxRetries cannot be negative: %d", cfg.Client.MaxRetries)
+		}
+	} else if cfg.Type == "worker" {
+		if len(cfg.Kafka.Brokers) == 0 {
+			return fmt.Errorf("kafka brokers list cannot be empty")
+		}
+		if cfg.Kafka.Topic == "" {
+			return fmt.Errorf("kafka topic cannot be empty")
+		}
+		if cfg.Kafka.GroupID == "" {
+			return fmt.Errorf("kafka groupID cannot be empty")
+		}
+		if cfg.Redis.Addr == "" {
+			return fmt.Errorf("redis addr cannot be empty")
 		}
 	}
 

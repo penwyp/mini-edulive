@@ -1,9 +1,11 @@
 # 项目基本信息
-GATEWAY_BINARY_NAME = mini-edulive-gateway
-CLIENT_BINARY_NAME = mini-edulive-client
 BIN_DIR = bin
+GATEWAY_BINARY_NAME = mini-edulive-gateway
 GATEWAY_CMD_DIR = cmd/edulive-gateway
 CLIENT_CMD_DIR = cmd/edulive-client
+CLIENT_BINARY_NAME = mini-edulive-client
+WORKER_CMD_DIR = cmd/edulive-worker
+WORKER_BINARY_NAME = mini-edulive-worker
 MODULE = github.com/penwyp/mini-edulive
 VERSION = 0.1.0
 BUILD_TIME = $(shell date +%Y-%m-%dT%H:%M:%S%z)
@@ -31,7 +33,7 @@ deps:
 
 # 编译项目并将二进制放入 bin 目录
 .PHONY: build
-build: deps build-gateway build-client
+build: deps build-gateway build-client build-worker
 
 .PHONY: build-gateway
 build-gateway: deps
@@ -43,6 +45,11 @@ build-client: deps
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(CLIENT_BINARY_NAME) $(CLIENT_CMD_DIR)/main.go
 
+.PHONY: build-worker
+build-worker: deps
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(WORKER_BINARY_NAME) $(WORKER_CMD_DIR)/main.go
+
 # 运行项目
 .PHONY: run-gateway
 run-gateway: build-gateway
@@ -53,6 +60,11 @@ run-gateway: build-gateway
 run-client: build-client
 	@rm -f logs/edulive_client.log  # 清理日志文件
 	$(BIN_DIR)/$(CLIENT_BINARY_NAME)
+
+.PHONY: run-worker
+run-worker: build-worker
+	@rm -f logs/edulive_worker.log  # Cleanup log file
+	$(BIN_DIR)/$(WORKER_BINARY_NAME)
 
 # 测试
 .PHONY: test
