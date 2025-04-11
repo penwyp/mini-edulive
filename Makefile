@@ -64,7 +64,7 @@ run-gateway: build-gateway
 	$(BIN_DIR)/$(GATEWAY_BINARY_NAME)
 
 .PHONY: run-client
-run-client: build-client
+run-client: build-client quic
 	@rm -f logs/edulive_client.log  # 清理日志文件
 	$(BIN_DIR)/$(CLIENT_BINARY_NAME)
 
@@ -74,7 +74,7 @@ run-worker: build-worker
 	$(BIN_DIR)/$(WORKER_BINARY_NAME)
 
 .PHONY: run-dispatcher
-run-dispatcher: build-dispatcher
+run-dispatcher: build-dispatcher quic
 	@rm -f logs/edulive_dispatcher.log  # Cleanup log file
 	$(BIN_DIR)/$(DISPATCHER_BINARY_NAME)
 
@@ -241,3 +241,14 @@ protocol:
 	@echo "Running go generate for ./pkg/protocol..."
 	@$(GO) generate ./pkg/protocol || { echo "Failed to run go generate"; exit 1; }
 	@echo "Protocol code generation completed."
+
+.PHONY: quic
+quic:
+	@echo "Checking QUIC HTTPS certificates..."
+	@if [ -f test/ssl/cert.pem ] && openssl x509 -checkend 0 -in test/ssl/cert.pem > /dev/null 2>&1; then \
+		echo "Certificates already exist and are not expired. Skipping generation."; \
+	else \
+		echo "Generating QUIC HTTPS certificates..."; \
+		openssl req -x509 -newkey rsa:4096 -keyout test/ssl/key.pem -out test/ssl/cert.pem -days 365 -nodes -config test/ssl/san.cnf || { echo "Failed to generate certificates"; exit 1; }; \
+		echo "Certificates generated: test/ssl/cert.pem, test/ssl/key.pem"; \
+	fi

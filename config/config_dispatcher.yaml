@@ -19,6 +19,8 @@ distributor:
   quic:
     enabled: true
     addr: "127.0.0.1:8484"
+    certFile: "test/ssl/cert.pem"
+    keyFile: "test/ssl/key.pem"
 observability:
   prometheus:
     enabled: true

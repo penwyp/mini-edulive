@@ -1,15 +1,17 @@
 type: client
 logger:
   filePath: logs/edulive_client.log
-  level: debug
+  level: info
 websocket:
   endpoint: "ws://localhost:8483/bullet"
 distributor:
   quic:
     enabled: true
     addr: "localhost:8484"
+    certFile: "test/ssl/cert.pem"
+    keyFile: "test/ssl/key.pem"
 client:
   liveID: 10000
-  userID: 20001
-  sendInterval: 100ms
+  userID: 20003
+  sendInterval: 1500ms
   maxRetries: 3

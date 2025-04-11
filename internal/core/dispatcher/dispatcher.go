@@ -37,7 +37,7 @@ func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
 	}
 
 	// 初始化 QUIC 监听器
-	quicListener, err := quic.ListenAddr(cfg.Distributor.QUIC.Addr, generateTLSConfig(), nil)
+	quicListener, err := quic.ListenAddr(cfg.Distributor.QUIC.Addr, generateTLSConfig(cfg.Distributor.QUIC), nil)
 	if err != nil {
 		logger.Error("Failed to start QUIC listener", zap.Error(err))
 		return nil, err
@@ -144,6 +144,10 @@ func (d *Dispatcher) pushBullets() {
 		return
 	}
 
+	if len(bullets) == 0 {
+		return
+	}
+
 	// 序列化并压缩
 	compressedData, err := d.compressBullets(bullets)
 	if err != nil {
@@ -243,8 +247,8 @@ func (d *Dispatcher) Close() {
 }
 
 // 辅助函数：生成 TLS 配置（QUIC 必需）
-func generateTLSConfig() *tls.Config {
-	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+func generateTLSConfig(quicConf config.QUIC) *tls.Config {
+	cert, err := tls.LoadX509KeyPair(quicConf.CertFile, quicConf.KeyFile)
 	if err != nil {
 		logger.Panic("Failed to load TLS cert", zap.Error(err))
 	}

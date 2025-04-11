@@ -2,7 +2,7 @@ type: worker
 app:
   port: "8484"  # Optional, if worker exposes metrics endpoint
 logger:
-  level: debug
+  level: info
   filePath: logs/edulive_worker.log
 kafka:
   brokers:

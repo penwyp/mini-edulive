@@ -61,13 +61,15 @@
     - 使用连接池多路复用，提升连接上限。
     - 基于Protobuf的二进制协议，减少带宽占用。
     - 内置健康检查与限流（IP/User级别）。
+    - 支持创建直播间、加入直播间并发送弹幕。
 
 ### 3.2 edulive-client
 - **职责** ：创建房间，发送弹幕，查看弹幕。
 - **关键点**：
     - 使用QUIC协议，支持快速连接恢复。
     - 内置心跳机制，保持连接活跃。
-    - 支持多房间弹幕接收，使用WebSocket连接池。
+    - 支持弹幕接收，使用WebSocket连接池。
+    - 支持创建直播间。
     - 使用Protobuf序列化，减少数据传输量。
     - 支持本地缓存Top10000弹幕，减少网络请求。
     - 支持本地过滤敏感词，减少网络传输。
@@ -101,11 +103,12 @@ redis.call("EXPIRE", KEYS[1], 60)
 return redis.call("ZINCRBY", KEYS[2], ARGV[1], ARGV[2])
 ```
 
-### 3.3 edulive-dispatcher
+### 3.4 edulive-dispatcher
 - **职责**：管理QUIC连接，并每10ms从Redis拉取Top10000弹幕，合并压缩（zstd）后推送至客户端edulive-client。
 - **推送策略**：
   - Dispatcher节点注册到Redis，维护心跳。
   - 客户端edulive-client连接时，随机选择Dispatcher。
+  - 从Redis获取当前活跃房间。
   - 由Dispatcher直连客户端edulive-client，进行弹幕推送。
 
 

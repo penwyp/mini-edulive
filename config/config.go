@@ -2,17 +2,16 @@ package config
 
 import (
 	"fmt"
+	"github.com/fsnotify/fsnotify"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"gopkg.in/yaml.v2"
 	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
-	"gopkg.in/yaml.v2"
 )
 
 var configMgr *ConfigManager
@@ -98,8 +97,10 @@ type Distributor struct {
 
 // QUIC QUIC 协议配置
 type QUIC struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Addr    string `mapstructure:"addr"`
+	Enabled  bool   `mapstructure:"enabled"`
+	Addr     string `mapstructure:"addr"`
+	CertFile string `mapstructure:"certFile"`
+	KeyFile  string `mapstructure:"keyFile"`
 }
 
 // CDN CDN 分发配置

@@ -123,9 +123,9 @@ func (w *Worker) rateLimit(ctx context.Context, userID uint64) bool {
 	script := redis.NewScript(`
         local count = redis.call("INCR", KEYS[1])
         if count == 1 then
-            redis.call("EXPIRE", KEYS[1], 60)
+            redis.call("EXPIRE", KEYS[1], 10)
         end
-        if count > 10 then
+        if count > 100000000 then
             return 0
         end
         return 1
