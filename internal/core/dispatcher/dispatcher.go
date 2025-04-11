@@ -11,14 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/klauspost/compress/zstd"
 	"github.com/penwyp/mini-edulive/config"
 	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
 	"github.com/quic-go/quic-go"
 	"github.com/redis/go-redis/v9"
-	"github.com/tinylib/msgp/msgp"
 	"go.uber.org/zap"
 )
 
@@ -201,7 +199,7 @@ func (d *Dispatcher) pushBullets() {
 		zap.Duration("total_time", time.Since(startTime)))
 }
 
-// encodeBullets 编码弹幕消息（替代 compressBullets）
+// encodeBullets 编码弹幕消息
 func (d *Dispatcher) encodeBullets(bullets []*protocol.BulletMessage) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, bullet := range bullets {
@@ -290,25 +288,6 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 	}
 
 	return allBullets, nil
-}
-
-func (d *Dispatcher) compressBullets(bullets []*protocol.BulletMessage) ([]byte, error) {
-	var buf bytes.Buffer
-	enc, err := zstd.NewWriter(&buf)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, bullet := range bullets {
-		err = msgp.Encode(enc, bullet)
-		if err != nil {
-			enc.Close()
-			return nil, err
-		}
-	}
-	enc.Close()
-
-	return buf.Bytes(), nil
 }
 
 func (d *Dispatcher) removeClient(userID uint64) {

@@ -5,16 +5,21 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/klauspost/compress/zstd"
+	"sync"
 	"time"
 )
 
 // 全局 zstd 编码器和解码器（复用以提升性能）
 var (
-	zstdEncoder, _ = zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
-	zstdDecoder, _ = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
+	zstdEncoder, _    = zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+	zstdDecoder, _    = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
+	bulletMessagePool = sync.Pool{
+		New: func() interface{} {
+			return &BulletMessage{}
+		},
+	}
 )
 
-//go:generate msgp
 const (
 	MagicNumber    = 0xABCD
 	CurrentVersion = 0x01
@@ -35,18 +40,28 @@ type SerializedBullet struct {
 }
 
 // BulletMessage 定义二进制协议结构体
-//
-//msgp:tuple BulletMessage
 type BulletMessage struct {
-	Magic     uint16 `msgp:"magic"`     // 魔数
-	Version   uint8  `msgp:"version"`   // 版本号
-	Type      uint8  `msgp:"type"`      // 消息类型
-	Timestamp int64  `msgp:"timestamp"` // 时间戳
-	UserID    uint64 `msgp:"user_id"`   // 用户ID
-	LiveID    uint64 `msgp:"live_id"`   // 直播间ID
-	UserName  string `msgp:"username"`  // 用户名
-	Content   string `msgp:"content"`   // 内容
-	Color     string `msgp:"color"`     // 颜色
+	Magic     uint16 // 魔数
+	Version   uint8  // 版本号
+	Type      uint8  // 消息类型
+	Timestamp int64  // 时间戳
+	UserID    uint64 // 用户ID
+	LiveID    uint64 // 直播间ID
+	UserName  string // 用户名
+	Content   string // 内容
+	Color     string // 颜色
+}
+
+// GetBulletMessage 从池中获取 BulletMessage
+func GetBulletMessage() *BulletMessage {
+	return bulletMessagePool.Get().(*BulletMessage)
+}
+
+// PutBulletMessage 将 BulletMessage 放回池中
+func PutBulletMessage(msg *BulletMessage) {
+	// 重置字段以避免内存泄漏
+	*msg = BulletMessage{}
+	bulletMessagePool.Put(msg)
 }
 
 // Encode 将 BulletMessage 编码为二进制数据，支持可选压缩

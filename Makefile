@@ -244,9 +244,9 @@ stop-test-env:
 
 .PHONY: protocol
 protocol:
-	@echo "Installing msgp tool..."
-	@$(GO) install github.com/tinylib/msgp@latest || { echo "Failed to install msgp"; exit 1; }
-	@echo "Running go generate for ./pkg/protocol..."
+#	@echo "Installing msgp tool..."
+#	@$(GO) install github.com/tinylib/msgp@latest || { echo "Failed to install msgp"; exit 1; }
+#	@echo "Running go generate for ./pkg/protocol..."
 	@$(GO) generate ./pkg/protocol || { echo "Failed to run go generate"; exit 1; }
 	@echo "Protocol code generation completed."
 
