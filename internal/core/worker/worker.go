@@ -1,20 +1,23 @@
+// internal/core/worker/worker.go
 package worker
 
 import (
 	"context"
 	"encoding/json"
-	"github.com/penwyp/mini-edulive/pkg/util"
 	"sync"
 	"time"
 
-	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
-
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/observability" // 引入可观测性包
 	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/penwyp/mini-edulive/pkg/util"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel/attribute" // 用于添加 Span 属性
+	"go.opentelemetry.io/otel/trace"     // 用于 Span 操作
 	"go.uber.org/zap"
 )
 
@@ -27,21 +30,35 @@ type Worker struct {
 }
 
 func NewWorker(cfg *config.Config) (*Worker, error) {
+	// 创建根 Span 追踪 Worker 初始化
+	ctx, span := observability.StartSpan(context.Background(), "worker.NewWorker")
+	defer span.End()
+
+	startTime := time.Now()
 	redisClient, err := pkgcache.NewRedisClusterClient(&cfg.Redis)
 	if err != nil {
 		logger.Error("Failed to create Redis client", zap.Error(err))
+		observability.RecordError(span, err, "worker.NewWorker")
 		return nil, err
 	}
-	return &Worker{
+	observability.RecordLatency(ctx, "redis.NewClusterClient", time.Since(startTime))
+
+	w := &Worker{
 		config:      cfg,
 		kafkaReader: pkgkafka.NewReader(&cfg.Kafka),
 		redisClient: redisClient,
-		keyBuilder:  pkgcache.NewRedisKeyBuilder(), // Initialize key builder
-	}, nil
+		keyBuilder:  pkgcache.NewRedisKeyBuilder(),
+	}
+	return w, nil
 }
 
 func (w *Worker) Start(ctx context.Context) {
+	// 创建根 Span 追踪 Worker 启动
+	ctx, span := observability.StartSpan(ctx, "worker.Start")
+	defer span.End()
+
 	logger.Info("Worker started, consuming Kafka messages...")
+
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
@@ -51,34 +68,58 @@ func (w *Worker) Start(ctx context.Context) {
 				logger.Info("Worker context canceled, stopping...")
 				return
 			default:
+				// 创建子 Span 追踪单次消息消费
+				msgCtx, msgSpan := observability.StartSpan(ctx, "worker.consumeMessage")
 				startTime := time.Now()
-				msg, err := w.kafkaReader.ReadMessage(ctx)
+
+				msg, err := w.kafkaReader.ReadMessage(msgCtx)
 				if err != nil {
 					logger.Error("Failed to read Kafka message", zap.Error(err))
+					observability.RecordError(msgSpan, err, "worker.consumeMessage")
+					msgSpan.End()
 					continue
 				}
+				msgSpan.SetAttributes(
+					attribute.Int64("offset", msg.Offset),
+					attribute.Int("partition", msg.Partition),
+					attribute.String("key", string(msg.Key)),
+				)
+				observability.RecordLatency(msgCtx, "kafka.ReadMessage", time.Since(startTime))
 				logger.Debug("Kafka message received",
 					zap.Int64("offset", msg.Offset),
 					zap.Int("partition", msg.Partition),
 					zap.ByteString("key", msg.Key),
 					zap.Duration("read_latency", time.Since(startTime)))
-				w.processMessage(ctx, msg)
+
+				w.processMessage(msgCtx, msg)
+				msgSpan.End()
 			}
 		}
 	}()
 }
 
 func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
+	// 创建 Span 追踪消息处理
+	ctx, span := observability.StartSpan(ctx, "worker.processMessage")
+	defer span.End()
+
 	startTime := time.Now()
 	bullet, err := protocol.Decode(msg.Value)
 	if err != nil {
 		logger.Warn("Failed to decode message",
 			zap.ByteString("raw_data", msg.Value),
 			zap.Error(err))
+		observability.RecordError(span, err, "worker.processMessage")
 		return
 	}
 	defer bullet.Release()
 
+	span.SetAttributes(
+		attribute.Int64("live_id", int64(bullet.LiveID)),
+		attribute.Int64("user_id", int64(bullet.UserID)),
+		attribute.String("user_name", bullet.UserName),
+		attribute.String("content", bullet.Content),
+	)
 	logger.Debug("Message decoded",
 		zap.Uint64("liveID", bullet.LiveID),
 		zap.Uint64("userID", bullet.UserID),
@@ -95,6 +136,11 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 			zap.Int64("current_time", currentTime),
 			zap.Uint64("userID", bullet.UserID),
 			zap.String("userName", bullet.UserName))
+		span.AddEvent("discarded_old_message",
+			trace.WithAttributes(
+				attribute.Int64("timestamp", bullet.Timestamp),
+				attribute.Int64("age_ms", currentTime-bullet.Timestamp),
+			))
 		return
 	}
 	logger.Debug("Timestamp validated",
@@ -106,6 +152,10 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 			zap.Uint64("userID", bullet.UserID),
 			zap.String("userName", bullet.UserName),
 			zap.Int("content_length", len(bullet.Content)))
+		span.AddEvent("invalid_content_length",
+			trace.WithAttributes(
+				attribute.Int("content_length", len(bullet.Content)),
+			))
 		return
 	}
 	logger.Debug("Content length validated",
@@ -115,6 +165,7 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 		logger.Warn("Rate limit exceeded",
 			zap.Uint64("userID", bullet.UserID),
 			zap.String("userName", bullet.UserName))
+		span.AddEvent("rate_limit_exceeded")
 		return
 	}
 	logger.Debug("Rate limit passed",
@@ -127,15 +178,23 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 		zap.Uint64("userID", bullet.UserID),
 		zap.String("userName", bullet.UserName),
 		zap.Duration("total_processing_time", time.Since(startTime)))
+	observability.RecordLatency(ctx, "worker.processMessage", time.Since(startTime))
 }
 
 func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) bool {
+	// 创建 Span 追踪限流检查
+	ctx, span := observability.StartSpan(ctx, "worker.rateLimit",
+		trace.WithAttributes(
+			attribute.Int64("user_id", int64(userID)),
+			attribute.String("user_name", userName),
+		))
+	defer span.End()
+
 	key := w.keyBuilder.RateLimitKey(userID)
 	logger.Debug("Applying rate limit",
 		zap.String("key", key),
 		zap.Uint64("userID", userID),
-		zap.String("userName", userName),
-	)
+		zap.String("userName", userName))
 
 	script := redis.NewScript(`
         local count = redis.call("INCR", KEYS[1])
@@ -151,8 +210,11 @@ func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) 
 	result, err := script.Run(ctx, w.redisClient, []string{key}).Int()
 	if err != nil {
 		logger.Error("Rate limit script failed", zap.Error(err), zap.String("key", key))
+		observability.RecordError(span, err, "worker.rateLimit")
 		return false
 	}
+	observability.RecordLatency(ctx, "redis.ScriptRun", time.Since(startTime))
+	span.SetAttributes(attribute.Int("count", result))
 	logger.Debug("Rate limit script executed",
 		zap.String("key", key),
 		zap.Int("count", result),
@@ -161,46 +223,58 @@ func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) 
 }
 
 func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) {
+	// 创建 Span 追踪消息存储
+	ctx, span := observability.StartSpan(ctx, "worker.storeMessage",
+		trace.WithAttributes(
+			attribute.Int64("live_id", int64(msg.LiveID)),
+			attribute.Int64("user_id", int64(msg.UserID)),
+			attribute.String("user_name", msg.UserName),
+		))
+	defer span.End()
+
 	startTime := time.Now()
 	pipe := w.redisClient.Pipeline()
 
-	// 创建 SerializedBullet 实例
 	serializedBullet := protocol.SerializedBullet{
 		Timestamp: msg.Timestamp,
 		UserID:    msg.UserID,
 		LiveID:    msg.LiveID,
 		UserName:  msg.UserName,
 		Content:   msg.Content,
+		Color:     msg.Color, // 包含颜色信息
 	}
 
-	// 序列化为 JSON
-	serializedData, _ := json.Marshal(serializedBullet)
+	serializedData, err := json.Marshal(serializedBullet)
+	if err != nil {
+		logger.Error("Failed to marshal serialized bullet", zap.Error(err))
+		observability.RecordError(span, err, "worker.storeMessage")
+		return
+	}
 
-	// 存储到 LiveBulletKey
 	bulletKey := w.keyBuilder.LiveBulletKey(msg.LiveID)
 	pipe.LPush(ctx, bulletKey, string(serializedData))
-	pipe.LTrim(ctx, bulletKey, 0, 999) // 保留最新 1000 条
+	pipe.LTrim(ctx, bulletKey, 0, 999)
 	logger.Debug("Prepared bullet storage",
 		zap.String("bullet_key", bulletKey),
 		zap.String("serialized_data", string(serializedData)))
 
-	// 更新排行榜
 	rankingKey := w.keyBuilder.LiveRankingKey(msg.LiveID)
 	pipe.ZIncrBy(ctx, rankingKey, 1, w.keyBuilder.UserIDStr(msg.UserID))
 	logger.Debug("Prepared ranking update",
 		zap.String("ranking_key", rankingKey),
 		zap.String("userID_str", w.keyBuilder.UserIDStr(msg.UserID)))
 
-	// 执行管道操作
-	_, err := pipe.Exec(ctx)
+	_, err = pipe.Exec(ctx)
 	if err != nil {
 		logger.Error("Failed to store message in Redis",
 			zap.Uint64("liveID", msg.LiveID),
 			zap.Uint64("userID", msg.UserID),
 			zap.String("userName", msg.UserName),
 			zap.Error(err))
+		observability.RecordError(span, err, "worker.storeMessage")
 		return
 	}
+	observability.RecordLatency(ctx, "redis.PipelineExec", time.Since(startTime))
 	logger.Debug("Redis pipeline executed",
 		zap.String("bullet_key", bulletKey),
 		zap.String("ranking_key", rankingKey),
@@ -215,13 +289,22 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 }
 
 func (w *Worker) Close() {
+	// 创建 Span 追踪 Worker 关闭
+	ctx, span := observability.StartSpan(context.Background(), "worker.Close")
+	defer span.End()
+
 	logger.Debug("Closing worker resources...")
+	startTime := time.Now()
+
 	if err := w.kafkaReader.Close(); err != nil {
 		logger.Error("Failed to close Kafka reader", zap.Error(err))
+		observability.RecordError(span, err, "worker.Close")
 	}
 	if err := w.redisClient.Close(); err != nil {
 		logger.Error("Failed to close Redis client", zap.Error(err))
+		observability.RecordError(span, err, "worker.Close")
 	}
 	w.wg.Wait()
+	observability.RecordLatency(ctx, "worker.Close", time.Since(startTime))
 	logger.Debug("Worker resources closed successfully")
 }
