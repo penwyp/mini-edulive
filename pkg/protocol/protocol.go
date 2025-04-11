@@ -17,6 +17,15 @@ const (
 	TypeCheckRoom  = 0x04 // 检查房间存在性消息
 )
 
+// SerializedBullet 表示序列化后的弹幕内容
+type SerializedBullet struct {
+	Timestamp int64  `json:"timestamp"`
+	UserID    uint64 `json:"user_id"`
+	LiveID    uint64 `json:"live_id"`
+	Username  string `json:"username"`
+	Content   string `json:"content"`
+}
+
 // BulletMessage 定义二进制协议结构体
 //
 //msgp:tuple BulletMessage

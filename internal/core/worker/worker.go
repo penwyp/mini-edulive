@@ -17,15 +17,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// SerializedBullet 表示序列化后的弹幕内容
-type SerializedBullet struct {
-	Timestamp int64  `json:"timestamp"`
-	UserID    uint64 `json:"user_id"`
-	LiveID    uint64 `json:"live_id"`
-	Username  string `json:"username"`
-	Content   string `json:"content"`
-}
-
 type Worker struct {
 	config      *config.Config
 	kafkaReader *kafka.Reader
@@ -167,7 +158,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 	pipe := w.redisClient.Pipeline()
 
 	// 创建 SerializedBullet 实例
-	serializedBullet := SerializedBullet{
+	serializedBullet := protocol.SerializedBullet{
 		Timestamp: msg.Timestamp,
 		UserID:    msg.UserID,
 		LiveID:    msg.LiveID,
@@ -176,15 +167,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 	}
 
 	// 序列化为 JSON
-	serializedData, err := json.Marshal(serializedBullet)
-	if err != nil {
-		logger.Error("Failed to marshal bullet to JSON",
-			zap.Uint64("liveID", msg.LiveID),
-			zap.Uint64("userID", msg.UserID),
-			zap.String("userName", msg.Username),
-			zap.Error(err))
-		return
-	}
+	serializedData, _ := json.Marshal(serializedBullet)
 
 	// 存储到 LiveBulletKey
 	bulletKey := w.keyBuilder.LiveBulletKey(msg.LiveID)
@@ -202,7 +185,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 		zap.String("userID_str", w.keyBuilder.UserIDStr(msg.UserID)))
 
 	// 执行管道操作
-	_, err = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
 	if err != nil {
 		logger.Error("Failed to store message in Redis",
 			zap.Uint64("liveID", msg.LiveID),

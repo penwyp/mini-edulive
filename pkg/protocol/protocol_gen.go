@@ -204,3 +204,206 @@ func (z *BulletMessage) Msgsize() (s int) {
 	s = 1 + msgp.Uint16Size + msgp.Uint8Size + msgp.Uint8Size + msgp.Int64Size + msgp.Uint64Size + msgp.Uint64Size + msgp.StringPrefixSize + len(z.Username) + msgp.Uint16Size + msgp.StringPrefixSize + len(z.Content)
 	return
 }
+
+// DecodeMsg implements msgp.Decodable
+func (z *SerializedBullet) DecodeMsg(dc *msgp.Reader) (err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, err = dc.ReadMapHeader()
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, err = dc.ReadMapKeyPtr()
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "Timestamp":
+			z.Timestamp, err = dc.ReadInt64()
+			if err != nil {
+				err = msgp.WrapError(err, "Timestamp")
+				return
+			}
+		case "UserID":
+			z.UserID, err = dc.ReadUint64()
+			if err != nil {
+				err = msgp.WrapError(err, "UserID")
+				return
+			}
+		case "LiveID":
+			z.LiveID, err = dc.ReadUint64()
+			if err != nil {
+				err = msgp.WrapError(err, "LiveID")
+				return
+			}
+		case "Username":
+			z.Username, err = dc.ReadString()
+			if err != nil {
+				err = msgp.WrapError(err, "Username")
+				return
+			}
+		case "Content":
+			z.Content, err = dc.ReadString()
+			if err != nil {
+				err = msgp.WrapError(err, "Content")
+				return
+			}
+		default:
+			err = dc.Skip()
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	return
+}
+
+// EncodeMsg implements msgp.Encodable
+func (z *SerializedBullet) EncodeMsg(en *msgp.Writer) (err error) {
+	// map header, size 5
+	// write "Timestamp"
+	err = en.Append(0x85, 0xa9, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70)
+	if err != nil {
+		return
+	}
+	err = en.WriteInt64(z.Timestamp)
+	if err != nil {
+		err = msgp.WrapError(err, "Timestamp")
+		return
+	}
+	// write "UserID"
+	err = en.Append(0xa6, 0x55, 0x73, 0x65, 0x72, 0x49, 0x44)
+	if err != nil {
+		return
+	}
+	err = en.WriteUint64(z.UserID)
+	if err != nil {
+		err = msgp.WrapError(err, "UserID")
+		return
+	}
+	// write "LiveID"
+	err = en.Append(0xa6, 0x4c, 0x69, 0x76, 0x65, 0x49, 0x44)
+	if err != nil {
+		return
+	}
+	err = en.WriteUint64(z.LiveID)
+	if err != nil {
+		err = msgp.WrapError(err, "LiveID")
+		return
+	}
+	// write "Username"
+	err = en.Append(0xa8, 0x55, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(z.Username)
+	if err != nil {
+		err = msgp.WrapError(err, "Username")
+		return
+	}
+	// write "Content"
+	err = en.Append(0xa7, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(z.Content)
+	if err != nil {
+		err = msgp.WrapError(err, "Content")
+		return
+	}
+	return
+}
+
+// MarshalMsg implements msgp.Marshaler
+func (z *SerializedBullet) MarshalMsg(b []byte) (o []byte, err error) {
+	o = msgp.Require(b, z.Msgsize())
+	// map header, size 5
+	// string "Timestamp"
+	o = append(o, 0x85, 0xa9, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70)
+	o = msgp.AppendInt64(o, z.Timestamp)
+	// string "UserID"
+	o = append(o, 0xa6, 0x55, 0x73, 0x65, 0x72, 0x49, 0x44)
+	o = msgp.AppendUint64(o, z.UserID)
+	// string "LiveID"
+	o = append(o, 0xa6, 0x4c, 0x69, 0x76, 0x65, 0x49, 0x44)
+	o = msgp.AppendUint64(o, z.LiveID)
+	// string "Username"
+	o = append(o, 0xa8, 0x55, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65)
+	o = msgp.AppendString(o, z.Username)
+	// string "Content"
+	o = append(o, 0xa7, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74)
+	o = msgp.AppendString(o, z.Content)
+	return
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler
+func (z *SerializedBullet) UnmarshalMsg(bts []byte) (o []byte, err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, bts, err = msgp.ReadMapHeaderBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, bts, err = msgp.ReadMapKeyZC(bts)
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "Timestamp":
+			z.Timestamp, bts, err = msgp.ReadInt64Bytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Timestamp")
+				return
+			}
+		case "UserID":
+			z.UserID, bts, err = msgp.ReadUint64Bytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "UserID")
+				return
+			}
+		case "LiveID":
+			z.LiveID, bts, err = msgp.ReadUint64Bytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "LiveID")
+				return
+			}
+		case "Username":
+			z.Username, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Username")
+				return
+			}
+		case "Content":
+			z.Content, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Content")
+				return
+			}
+		default:
+			bts, err = msgp.Skip(bts)
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	o = bts
+	return
+}
+
+// Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
+func (z *SerializedBullet) Msgsize() (s int) {
+	s = 1 + 10 + msgp.Int64Size + 7 + msgp.Uint64Size + 7 + msgp.Uint64Size + 9 + msgp.StringPrefixSize + len(z.Username) + 8 + msgp.StringPrefixSize + len(z.Content)
+	return
+}

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"github.com/penwyp/mini-edulive/internal/core/websocket"
 	"github.com/penwyp/mini-edulive/pkg/util"
 	"strconv"
@@ -242,41 +243,45 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 			logger.Warn("Invalid liveID in active rooms", zap.String("liveID", roomStr), zap.Error(err))
 			continue
 		}
+		bulletKey := d.keyBuilder.LiveBulletKey(liveID)
 
-		rankingKey := d.keyBuilder.LiveRankingKey(liveID)
-		users, err := d.redisClient.ZRevRangeWithScores(ctx, rankingKey, 0, 9999).Result()
-		if err != nil {
-			logger.Warn("Failed to fetch ranking for liveID", zap.Uint64("liveID", liveID), zap.Error(err))
+		// 从 Redis 获取序列化的弹幕数据
+		serializedContent, err := d.redisClient.LPop(ctx, bulletKey).Result()
+		if err == redis.Nil {
+			continue
+		} else if err != nil {
+			logger.Warn("Failed to fetch bullet for liveID", zap.Uint64("liveID", liveID), zap.Error(err))
 			continue
 		}
 
-		bulletKey := d.keyBuilder.LiveBulletKey(liveID)
-		for _, user := range users {
-			userID := user.Member.(string)
-			content, err := d.redisClient.LPop(ctx, bulletKey).Result()
-			if err == redis.Nil {
-				continue
-			} else if err != nil {
-				logger.Warn("Failed to fetch bullet for liveID", zap.Uint64("liveID", liveID), zap.Error(err))
-				continue
-			}
-
-			allBullets = append(allBullets, &protocol.BulletMessage{
-				Magic:      protocol.MagicNumber,
-				Version:    protocol.CurrentVersion,
-				Type:       protocol.TypeBullet,
-				Timestamp:  time.Now().UnixMilli(),
-				UserID:     parseUserID(userID),
-				LiveID:     liveID,
-				Username:   "",
-				ContentLen: uint16(len(content)),
-				Content:    content,
-			})
-
-			if len(allBullets) >= 10000 {
-				break
-			}
+		// 反序列化 JSON 数据
+		var serializedBullet protocol.SerializedBullet
+		if err := json.Unmarshal([]byte(serializedContent), &serializedBullet); err != nil {
+			logger.Warn("Failed to unmarshal serialized bullet",
+				zap.String("serialized_content", serializedContent),
+				zap.Error(err))
+			continue
 		}
+
+		// 构造 BulletMessage
+		bullet := &protocol.BulletMessage{
+			Magic:      protocol.MagicNumber,
+			Version:    protocol.CurrentVersion,
+			Type:       protocol.TypeBullet,
+			Timestamp:  serializedBullet.Timestamp,
+			UserID:     serializedBullet.UserID,
+			LiveID:     serializedBullet.LiveID,
+			Username:   serializedBullet.Username,
+			ContentLen: uint16(len(serializedBullet.Content)),
+			Content:    serializedBullet.Content,
+		}
+
+		allBullets = append(allBullets, bullet)
+		logger.Debug("Fetched and parsed bullet",
+			zap.Uint64("liveID", bullet.LiveID),
+			zap.Uint64("userID", bullet.UserID),
+			zap.String("username", bullet.Username),
+			zap.String("content", bullet.Content))
 
 		if len(allBullets) >= 10000 {
 			break
