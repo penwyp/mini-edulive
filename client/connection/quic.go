@@ -38,7 +38,10 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 		KeepAlivePeriod: 30 * time.Second, // 保持连接活跃
 	})
 	if err != nil {
-		logger.Error("Failed to dial QUIC", zap.Error(err))
+		logger.Error("Failed to dial QUIC", zap.Error(err),
+			zap.String("certFile", cfg.Distributor.QUIC.CertFile),
+			zap.String("keyFile", cfg.Distributor.QUIC.KeyFile),
+		)
 		return nil, fmt.Errorf("quic dial failed: %w", err)
 	}
 
