@@ -2,84 +2,129 @@ package observability
 
 import (
 	"context"
+	"fmt"
+	"time"
+
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/pkg/logger"
-
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
-// InitTracing 初始化分布式追踪（使用 Jaeger），根据配置决定是否启用
-// 返回一个清理资源的关闭函数
-func InitTracing(cfg *config.Config) func(context.Context) error {
-	if !cfg.Observability.Jaeger.Enabled {
-		logger.Info("Jaeger tracing is disabled in configuration")
-		return func(ctx context.Context) error { return nil } // 无操作的关闭函数
-	}
-	logger.Info("Jaeger tracing is enabled in configuration")
+// tracer 是全局的 Tracer 实例
+var tracer trace.Tracer
 
-	// 创建 OTLP HTTP 导出器，用于将追踪数据发送到 Jaeger
+// Metrics
+var (
+	operationLatency metric.Float64Histogram
+	errorCounter     metric.Int64Counter
+)
+
+// InitTracing 初始化分布式追踪和指标
+func InitTracing(cfg *config.Config) error {
+	// 初始化 Jaeger 导出器
 	exporter, err := otlptracehttp.New(context.Background(),
-		otlptracehttp.WithEndpoint(cfg.Observability.Jaeger.Endpoint),
-		otlptracehttp.WithURLPath("/v1/traces"),
-		otlptracehttp.WithInsecure(), // 本地测试禁用 TLS，生产环境需配置
+		otlptracehttp.WithEndpoint(cfg.Observability.Jaeger.HttpEndpoint),
+		otlptracehttp.WithInsecure(), // 开发环境使用
 	)
 	if err != nil {
-		logger.Error("Failed to initialize OTLP exporter",
-			zap.String("endpoint", cfg.Observability.Jaeger.Endpoint),
-			zap.Error(err))
-		panic(err) // 致命错误，生产环境建议优雅处理
+		logger.Error("Failed to create OTLP exporter", zap.Error(err))
+		return fmt.Errorf("create OTLP exporter: %w", err)
 	}
 
-	// 根据配置选择采样器
-	var sampler sdktrace.Sampler
-	switch cfg.Observability.Jaeger.Sampler {
-	case "always":
-		sampler = sdktrace.AlwaysSample()
-	case "ratio":
-		sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.Observability.Jaeger.SampleRatio))
-	default:
-		sampler = sdktrace.AlwaysSample()
-		logger.Warn("Unknown sampler type detected, defaulting to 'always'",
-			zap.String("sampler", cfg.Observability.Jaeger.Sampler))
-	}
-
-	// 定义服务资源信息
+	// 定义服务资源
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String("mini-edulive"),
-			semconv.ServiceVersionKey.String("0.1.0"), // 可从全局版本变量获取
+			attribute.String("service.name", cfg.Type),
+			attribute.String("service.version", "0.1.0"),
+			attribute.String("environment", "production"),
 		),
 	)
 	if err != nil {
-		logger.Error("Failed to create tracing resource",
-			zap.Error(err))
-		panic(err) // 致命错误，生产环境建议优雅处理
+		logger.Error("Failed to create resource", zap.Error(err))
+		return fmt.Errorf("create resource: %w", err)
 	}
 
-	// 初始化 TracerProvider，包含导出器、资源和采样器
+	// 初始化 Tracer 提供者
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sampler),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.Observability.Jaeger.SampleRatio))),
 	)
-
-	// 设置全局 TracerProvider 和 TextMapPropagator 用于追踪传播
 	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
-	logger.Info("Distributed tracing initialized successfully",
-		zap.String("endpoint", cfg.Observability.Jaeger.Endpoint),
-		zap.String("sampler", cfg.Observability.Jaeger.Sampler),
-		zap.Float64("sampleRatio", cfg.Observability.Jaeger.SampleRatio))
+	// 初始化全局 Tracer
+	tracer = otel.Tracer("edulive")
 
-	return tp.Shutdown // 返回清理函数以释放资源
+	// 初始化 Prometheus 导出器
+	if cfg.Observability.Prometheus.Enabled {
+		promExporter, err := prometheus.New()
+		if err != nil {
+			logger.Error("Failed to create Prometheus exporter", zap.Error(err))
+			return fmt.Errorf("create Prometheus exporter: %w", err)
+		}
+		provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(promExporter))
+		otel.SetMeterProvider(provider)
+
+		// 初始化指标
+		meter := provider.Meter("edulive")
+		operationLatency, err = meter.Float64Histogram(
+			"operation_latency_seconds",
+			metric.WithDescription("Latency of operations in seconds"),
+			metric.WithUnit("s"),
+		)
+		if err != nil {
+			logger.Error("Failed to create latency histogram", zap.Error(err))
+			return fmt.Errorf("create latency histogram: %w", err)
+		}
+		errorCounter, err = meter.Int64Counter(
+			"operation_errors_total",
+			metric.WithDescription("Total number of operation errors"),
+		)
+		if err != nil {
+			logger.Error("Failed to create error counter", zap.Error(err))
+			return fmt.Errorf("create error counter: %w", err)
+		}
+	}
+
+	logger.Info("Tracing initialized",
+		zap.String("jaeger_endpoint", cfg.Observability.Jaeger.HttpEndpoint),
+		zap.Bool("prometheus_enabled", cfg.Observability.Prometheus.Enabled))
+	return nil
+}
+
+// StartSpan 创建并返回一个新的 Span
+func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	return tracer.Start(ctx, name, opts...)
+}
+
+// RecordError 在 Span 中记录错误，operation 需由调用者提供
+func RecordError(span trace.Span, err error, operation string) {
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		errorCounter.Add(context.Background(), 1,
+			metric.WithAttributes(
+				attribute.String("operation", operation),
+			))
+	}
+}
+
+// RecordLatency 记录操作延迟
+func RecordLatency(ctx context.Context, operation string, duration time.Duration) {
+	operationLatency.Record(ctx, duration.Seconds(),
+		metric.WithAttributes(
+			attribute.String("operation", operation),
+		))
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"os"
 	"os/signal"
 	"sync"
@@ -48,6 +49,8 @@ func main() {
 		zap.String("userName", cfg.Client.UserName),
 		zap.String("mode", cfg.Client.Mode),
 		zap.String("config_path", *configPath))
+
+	observability.InitTracing(cfg)
 
 	// 监听配置更新
 	go func() {
