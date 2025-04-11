@@ -335,6 +335,7 @@ handle_all() {
                 stop_component "$comp"
             done
             sleep 1
+            build_component "all"
             start_all
             ;;
         status)

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/internal/core/dispatcher"
 	"github.com/penwyp/mini-edulive/internal/core/observability"
@@ -37,10 +39,12 @@ func main() {
 		}
 	}()
 
+	ctx := context.Background()
+
 	// 启动 Dispatcher
-	d, err := dispatcher.NewDispatcher(cfg)
+	d, err := dispatcher.NewDispatcher(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create dispatcher", zap.Error(err))
 	}
-	d.Start()
+	d.Start(ctx)
 }

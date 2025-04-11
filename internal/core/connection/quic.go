@@ -36,9 +36,9 @@ type QuicClient struct {
 }
 
 // NewQuicClient 创建新的 QUIC 客户端
-func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
+func NewQuicClient(spanCtx context.Context, cfg *config.Config) (*QuicClient, error) {
 	// 创建根 Span 追踪 QUIC 客户端初始化
-	ctx, span := observability.StartSpan(context.Background(), "quic.NewQuicClient",
+	ctx, span := observability.StartSpan(spanCtx, "quic.NewQuicClient",
 		trace.WithAttributes(
 			attribute.String("addr", cfg.Distributor.QUIC.Addr),
 			attribute.Int64("user_id", int64(cfg.Client.UserID)),
@@ -88,9 +88,9 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 	}
 
 	// 发送初始化消息
-	err = client.sendInitMessage()
+	err = client.sendInitMessage(ctx)
 	if err != nil {
-		client.Close()
+		client.Close(ctx)
 		logger.Error("Failed to send init message", zap.Error(err))
 		observability.RecordError(span, err, "quic.NewQuicClient")
 		return nil, fmt.Errorf("send init message failed: %w", err)
@@ -105,9 +105,9 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 }
 
 // sendInitMessage 发送初始化消息
-func (c *QuicClient) sendInitMessage() error {
+func (c *QuicClient) sendInitMessage(spanCtx context.Context) error {
 	// 创建 Span 追踪初始化消息发送
-	ctx, span := observability.StartSpan(context.Background(), "quic.sendInitMessage",
+	ctx, span := observability.StartSpan(spanCtx, "quic.sendInitMessage",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(c.userID)),
 			attribute.Int64("live_id", int64(c.liveID)),
@@ -161,9 +161,9 @@ func (c *QuicClient) sendInitMessage() error {
 }
 
 // Receive 处理接收 QUIC 消息
-func (c *QuicClient) Receive(ctx context.Context) error {
+func (c *QuicClient) Receive(spanCtx context.Context) error {
 	// 创建根 Span 追踪接收过程
-	ctx, span := observability.StartSpan(ctx, "quic.Receive",
+	ctx, span := observability.StartSpan(spanCtx, "quic.Receive",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(c.userID)),
 			attribute.Int64("live_id", int64(c.liveID)),
@@ -181,7 +181,7 @@ func (c *QuicClient) Receive(ctx context.Context) error {
 			msgCtx, msgSpan := observability.StartSpan(ctx, "quic.receiveMessage")
 			startTime := time.Now()
 
-			data, err := c.readStream()
+			data, err := c.readStream(ctx)
 			if err != nil {
 				logger.Warn("Failed to read QUIC stream", zap.Error(err))
 				observability.RecordError(msgSpan, err, "quic.receiveMessage")
@@ -248,9 +248,9 @@ func (c *QuicClient) Receive(ctx context.Context) error {
 }
 
 // readStream 从 QUIC 流中读取数据
-func (c *QuicClient) readStream() ([]byte, error) {
+func (c *QuicClient) readStream(spanCtx context.Context) ([]byte, error) {
 	// 创建 Span 追踪流读取
-	ctx, span := observability.StartSpan(context.Background(), "quic.readStream")
+	ctx, span := observability.StartSpan(spanCtx, "quic.readStream")
 	defer span.End()
 
 	var buf bytes.Buffer
@@ -294,9 +294,9 @@ func (c *QuicClient) readStream() ([]byte, error) {
 }
 
 // Close 关闭 QUIC 连接
-func (c *QuicClient) Close() {
+func (c *QuicClient) Close(spanCtx context.Context) {
 	// 创建 Span 追踪连接关闭
-	ctx, span := observability.StartSpan(context.Background(), "quic.Close",
+	ctx, span := observability.StartSpan(spanCtx, "quic.Close",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(c.userID)),
 			attribute.Int64("live_id", int64(c.liveID)),

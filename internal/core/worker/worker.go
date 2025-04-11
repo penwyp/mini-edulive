@@ -29,9 +29,9 @@ type Worker struct {
 	wg          sync.WaitGroup
 }
 
-func NewWorker(cfg *config.Config) (*Worker, error) {
+func NewWorker(spanCtx context.Context, cfg *config.Config) (*Worker, error) {
 	// 创建根 Span 追踪 Worker 初始化
-	ctx, span := observability.StartSpan(context.Background(), "worker.NewWorker")
+	ctx, span := observability.StartSpan(spanCtx, "worker.NewWorker")
 	defer span.End()
 
 	startTime := time.Now()
@@ -52,9 +52,9 @@ func NewWorker(cfg *config.Config) (*Worker, error) {
 	return w, nil
 }
 
-func (w *Worker) Start(ctx context.Context) {
+func (w *Worker) Start(spanCtx context.Context) {
 	// 创建根 Span 追踪 Worker 启动
-	ctx, span := observability.StartSpan(ctx, "worker.Start")
+	ctx, span := observability.StartSpan(spanCtx, "worker.Start")
 	defer span.End()
 
 	logger.Info("Worker started, consuming Kafka messages...")
@@ -98,9 +98,9 @@ func (w *Worker) Start(ctx context.Context) {
 	}()
 }
 
-func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
+func (w *Worker) processMessage(spanCtx context.Context, msg kafka.Message) {
 	// 创建 Span 追踪消息处理
-	ctx, span := observability.StartSpan(ctx, "worker.processMessage")
+	ctx, span := observability.StartSpan(spanCtx, "worker.processMessage")
 	defer span.End()
 
 	startTime := time.Now()
@@ -222,9 +222,9 @@ func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) 
 	return result == 1
 }
 
-func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) {
+func (w *Worker) storeMessage(spanCtx context.Context, msg *protocol.BulletMessage) {
 	// 创建 Span 追踪消息存储
-	ctx, span := observability.StartSpan(ctx, "worker.storeMessage",
+	ctx, span := observability.StartSpan(spanCtx, "worker.storeMessage",
 		trace.WithAttributes(
 			attribute.Int64("live_id", int64(msg.LiveID)),
 			attribute.Int64("user_id", int64(msg.UserID)),
@@ -288,9 +288,9 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 		zap.String("serialized_data", string(serializedData)))
 }
 
-func (w *Worker) Close() {
+func (w *Worker) Close(spanCtx context.Context) {
 	// 创建 Span 追踪 Worker 关闭
-	ctx, span := observability.StartSpan(context.Background(), "worker.Close")
+	ctx, span := observability.StartSpan(spanCtx, "worker.Close")
 	defer span.End()
 
 	logger.Debug("Closing worker resources...")

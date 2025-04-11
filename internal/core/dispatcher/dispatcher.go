@@ -52,9 +52,9 @@ type ClientInfo struct {
 	UserName string
 }
 
-func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
+func NewDispatcher(spanCtx context.Context, cfg *config.Config) (*Dispatcher, error) {
 	// 创建根 Span 追踪 Dispatcher 初始化
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.NewDispatcher")
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.NewDispatcher")
 	defer span.End()
 
 	redisClient, err := pkgcache.NewRedisClusterClient(&cfg.Redis)
@@ -83,9 +83,9 @@ func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
 	return d, nil
 }
 
-func (d *Dispatcher) Start() {
+func (d *Dispatcher) Start(spanCtx context.Context) {
 	// 创建根 Span 追踪 Dispatcher 启动
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.Start",
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.Start",
 		trace.WithAttributes(
 			attribute.String("quic_addr", d.config.Distributor.QUIC.Addr),
 		))
@@ -94,20 +94,19 @@ func (d *Dispatcher) Start() {
 	logger.Info("Dispatcher started", zap.String("quic_addr", d.config.Distributor.QUIC.Addr))
 
 	d.wg.Add(1)
-	go d.acceptConnections()
+	go d.acceptConnections(ctx)
 
 	d.wg.Add(1)
-	go d.pushBulletLoop()
+	go d.pushBulletLoop(ctx)
 
 	d.wg.Wait()
-	_ = ctx // 避免未使用警告
 }
 
-func (d *Dispatcher) acceptConnections() {
+func (d *Dispatcher) acceptConnections(spanCtx context.Context) {
 	defer d.wg.Done()
 	for {
 		// 创建 Span 追踪 QUIC 连接接受
-		ctx, span := observability.StartSpan(context.Background(), "dispatcher.acceptConnections")
+		ctx, span := observability.StartSpan(spanCtx, "dispatcher.acceptConnections")
 		startTime := time.Now()
 
 		conn, err := d.quicListener.Accept(ctx)
@@ -121,13 +120,13 @@ func (d *Dispatcher) acceptConnections() {
 		observability.RecordLatency(ctx, "quic.Accept", time.Since(startTime))
 		span.End()
 
-		go d.handleConnection(conn)
+		go d.handleConnection(ctx, conn)
 	}
 }
 
-func (d *Dispatcher) handleConnection(conn quic.Connection) {
+func (d *Dispatcher) handleConnection(spanCtx context.Context, conn quic.Connection) {
 	// 创建 Span 追踪单个连接处理
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.handleConnection")
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.handleConnection")
 	defer span.End()
 
 	defer conn.CloseWithError(0, "connection closed")
@@ -142,7 +141,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 	observability.RecordLatency(ctx, "quic.AcceptStream", time.Since(startTime))
 
 	// 读取初始化消息
-	data, err := readStream(stream)
+	data, err := readStream(ctx, stream)
 	if err != nil {
 		logger.Error("Failed to read initial message", zap.Error(err))
 		observability.RecordError(span, err, "dispatcher.handleConnection")
@@ -180,38 +179,38 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 
 	// 保持流活跃
 	for {
-		_, err := readStream(stream)
+		_, err := readStream(ctx, stream)
 		if err != nil {
 			logger.Warn("Stream read error, removing client",
 				zap.Uint64("userID", msg.UserID),
 				zap.String("userName", msg.UserName),
 				zap.Error(err))
 			observability.RecordError(span, err, "dispatcher.handleConnection")
-			d.removeClient(msg.UserID)
+			d.removeClient(ctx, msg.UserID)
 			return
 		}
 	}
 }
 
-func (d *Dispatcher) pushBulletLoop() {
+func (d *Dispatcher) pushBulletLoop(spanCtx context.Context) {
 	defer d.wg.Done()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		// 创建 Span 追踪单次弹幕推送循环
-		ctx, span := observability.StartSpan(context.Background(), "dispatcher.pushBulletLoop")
+		ctx, span := observability.StartSpan(spanCtx, "dispatcher.pushBulletLoop")
 		startTime := time.Now()
 
-		d.pushBullets()
+		d.pushBullets(ctx)
 		observability.RecordLatency(ctx, "dispatcher.pushBullets", time.Since(startTime))
 		span.End()
 	}
 }
 
-func (d *Dispatcher) pushBullets() {
+func (d *Dispatcher) pushBullets(spanCtx context.Context) {
 	// 创建 Span 追踪弹幕推送
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.pushBullets")
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.pushBullets")
 	defer span.End()
 
 	startTime := time.Now()
@@ -249,7 +248,7 @@ func (d *Dispatcher) pushBullets() {
 			))
 		startTime = time.Now()
 
-		data, err := d.encodeBullets(clientBullets)
+		data, err := d.encodeBullets(ctx, clientBullets)
 		if err != nil {
 			logger.Error("Failed to encode bullets for client",
 				zap.Uint64("userID", userID),
@@ -260,14 +259,14 @@ func (d *Dispatcher) pushBullets() {
 			continue
 		}
 
-		err = d.sendToClient(clientInfo.Stream, data)
+		err = d.sendToClient(ctx, clientInfo.Stream, data)
 		if err != nil {
 			logger.Warn("Failed to send to client",
 				zap.Uint64("userID", userID),
 				zap.String("userName", clientInfo.UserName),
 				zap.Error(err))
 			observability.RecordError(clientSpan, err, "dispatcher.pushToClient")
-			d.removeClient(userID)
+			d.removeClient(ctx, userID)
 		}
 		observability.RecordLatency(clientCtx, "dispatcher.pushToClient", time.Since(startTime))
 		clientSpan.End()
@@ -286,9 +285,9 @@ func (d *Dispatcher) pushBullets() {
 	observability.RecordLatency(ctx, "dispatcher.pushBullets", time.Since(startTime))
 }
 
-func (d *Dispatcher) encodeBullets(bullets []*protocol.BulletMessage) ([]byte, error) {
+func (d *Dispatcher) encodeBullets(spanCtx context.Context, bullets []*protocol.BulletMessage) ([]byte, error) {
 	// 创建 Span 追踪弹幕编码
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.encodeBullets",
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.encodeBullets",
 		trace.WithAttributes(
 			attribute.Int("bullet_count", len(bullets)),
 		))
@@ -322,9 +321,9 @@ func (d *Dispatcher) encodeBullets(bullets []*protocol.BulletMessage) ([]byte, e
 	return buf.Bytes(), nil
 }
 
-func (d *Dispatcher) sendToClient(stream quic.Stream, data []byte) error {
+func (d *Dispatcher) sendToClient(spanCtx context.Context, stream quic.Stream, data []byte) error {
 	// 创建 Span 追踪 QUIC 发送
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.sendToClient")
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.sendToClient")
 	defer span.End()
 
 	startTime := time.Now()
@@ -337,9 +336,9 @@ func (d *Dispatcher) sendToClient(stream quic.Stream, data []byte) error {
 	return err
 }
 
-func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMessage, error) {
+func (d *Dispatcher) fetchTopBullets(spanCtx context.Context) ([]*protocol.BulletMessage, error) {
 	// 创建 Span 追踪弹幕获取
-	ctx, span := observability.StartSpan(ctx, "dispatcher.fetchTopBullets")
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.fetchTopBullets")
 	defer span.End()
 
 	allBullets := bulletSlicePool.Get()
@@ -418,9 +417,9 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 	return allBullets, nil
 }
 
-func (d *Dispatcher) removeClient(userID uint64) {
+func (d *Dispatcher) removeClient(spanCtx context.Context, userID uint64) {
 	// 创建 Span 追踪客户端移除
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.removeClient",
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.removeClient",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(userID)),
 		))
@@ -436,9 +435,9 @@ func (d *Dispatcher) removeClient(userID uint64) {
 	d.mutex.Unlock()
 }
 
-func (d *Dispatcher) Close() {
+func (d *Dispatcher) Close(spanCtx context.Context) {
 	// 创建 Span 追踪 Dispatcher 关闭
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.Close")
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.Close")
 	defer span.End()
 
 	startTime := time.Now()
@@ -449,9 +448,9 @@ func (d *Dispatcher) Close() {
 	logger.Info("Dispatcher closed")
 }
 
-func readStream(stream quic.Stream) ([]byte, error) {
+func readStream(spanCtx context.Context, stream quic.Stream) ([]byte, error) {
 	// 创建 Span 追踪流读取
-	ctx, span := observability.StartSpan(context.Background(), "dispatcher.readStream")
+	ctx, span := observability.StartSpan(spanCtx, "dispatcher.readStream")
 	defer span.End()
 
 	startTime := time.Now()

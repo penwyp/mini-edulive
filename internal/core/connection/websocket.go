@@ -30,9 +30,9 @@ type Client struct {
 }
 
 // NewClient 创建新的 WebSocket 客户端
-func NewClient(cfg *config.Config) (*Client, error) {
+func NewClient(spanCtx context.Context, cfg *config.Config) (*Client, error) {
 	// 创建根 Span 追踪 WebSocket 客户端初始化
-	ctx, span := observability.StartSpan(context.Background(), "websocket.NewClient",
+	ctx, span := observability.StartSpan(spanCtx, "websocket.NewClient",
 		trace.WithAttributes(
 			attribute.String("endpoint", cfg.WebSocket.Endpoint),
 			attribute.Int64("user_id", int64(cfg.Client.UserID)),
@@ -74,9 +74,9 @@ func NewClient(cfg *config.Config) (*Client, error) {
 }
 
 // StartHeartbeat 启动心跳机制
-func (c *Client) StartHeartbeat(ctx context.Context) error {
+func (c *Client) StartHeartbeat(spanCtx context.Context) error {
 	// 创建根 Span 追踪心跳机制
-	ctx, span := observability.StartSpan(ctx, "websocket.StartHeartbeat",
+	ctx, span := observability.StartSpan(spanCtx, "websocket.StartHeartbeat",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(c.userID)),
 		))
@@ -96,7 +96,7 @@ func (c *Client) StartHeartbeat(ctx context.Context) error {
 			hbCtx, hbSpan := observability.StartSpan(ctx, "websocket.sendHeartbeat")
 			startTime := time.Now()
 
-			if err := c.sendHeartbeat(); err != nil {
+			if err := c.sendHeartbeat(ctx); err != nil {
 				logger.Warn("Failed to send heartbeat", zap.Error(err))
 				observability.RecordError(hbSpan, err, "websocket.sendHeartbeat")
 				hbSpan.End()
@@ -109,9 +109,9 @@ func (c *Client) StartHeartbeat(ctx context.Context) error {
 }
 
 // sendHeartbeat 发送心跳消息
-func (c *Client) sendHeartbeat() error {
+func (c *Client) sendHeartbeat(spanCtx context.Context) error {
 	// 创建 Span 追踪心跳消息发送
-	ctx, span := observability.StartSpan(context.Background(), "websocket.sendHeartbeat",
+	ctx, span := observability.StartSpan(spanCtx, "websocket.sendHeartbeat",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(c.userID)),
 			attribute.String("user_name", c.userName),
@@ -155,9 +155,9 @@ func (c *Client) sendHeartbeat() error {
 }
 
 // SendBullet 发送弹幕消息
-func (c *Client) SendBullet(content string) error {
+func (c *Client) SendBullet(spanCtx context.Context, content string) error {
 	// 创建 Span 追踪弹幕发送
-	ctx, span := observability.StartSpan(context.Background(), "websocket.SendBullet",
+	ctx, span := observability.StartSpan(spanCtx, "websocket.SendBullet",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(c.userID)),
 			attribute.Int64("live_id", int64(c.liveID)),
@@ -205,9 +205,9 @@ func (c *Client) SendBullet(content string) error {
 }
 
 // CreateRoom 创建直播间
-func (c *Client) CreateRoom(liveID, userID uint64, userName string) error {
+func (c *Client) CreateRoom(spanCtx context.Context, liveID, userID uint64, userName string) error {
 	// 创建 Span 追踪房间创建
-	ctx, span := observability.StartSpan(context.Background(), "websocket.CreateRoom",
+	ctx, span := observability.StartSpan(spanCtx, "websocket.CreateRoom",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(userID)),
 			attribute.Int64("live_id", int64(liveID)),
@@ -280,9 +280,9 @@ func (c *Client) CreateRoom(liveID, userID uint64, userName string) error {
 }
 
 // CheckRoom 检查直播间是否存在
-func (c *Client) CheckRoom(liveID, userID uint64, userName string) error {
+func (c *Client) CheckRoom(spanCtx context.Context, liveID, userID uint64, userName string) error {
 	// 创建 Span 追踪房间检查
-	ctx, span := observability.StartSpan(context.Background(), "websocket.CheckRoom",
+	ctx, span := observability.StartSpan(spanCtx, "websocket.CheckRoom",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(userID)),
 			attribute.Int64("live_id", int64(liveID)),
@@ -356,9 +356,9 @@ func (c *Client) CheckRoom(liveID, userID uint64, userName string) error {
 }
 
 // Close 关闭 WebSocket 连接
-func (c *Client) Close() {
+func (c *Client) Close(spanCtx context.Context) {
 	// 创建 Span 追踪连接关闭
-	ctx, span := observability.StartSpan(context.Background(), "websocket.Close",
+	ctx, span := observability.StartSpan(spanCtx, "websocket.Close",
 		trace.WithAttributes(
 			attribute.Int64("user_id", int64(c.userID)),
 			attribute.Int64("live_id", int64(c.liveID)),

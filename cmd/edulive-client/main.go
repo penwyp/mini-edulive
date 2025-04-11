@@ -60,20 +60,21 @@ func main() {
 		}
 	}()
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// 初始化 WebSocket 和 QUIC 客户端
-	wsClient, err := connection.NewClient(cfg)
+	wsClient, err := connection.NewClient(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create WebSocket client", zap.Error(err))
 	}
-	defer wsClient.Close()
+	defer wsClient.Close(ctx)
 
-	quicClient, err := connection.NewQuicClient(cfg)
+	quicClient, err := connection.NewQuicClient(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create QUIC client", zap.Error(err))
 	}
-	defer quicClient.Close()
+	defer quicClient.Close(ctx)
 
-	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
 	// 启动 WebSocket 心跳，并支持重连
@@ -135,7 +136,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := wsClient.CreateRoom(cfg.Client.LiveID, cfg.Client.UserID, cfg.Client.UserName)
+			err := wsClient.CreateRoom(ctx, cfg.Client.LiveID, cfg.Client.UserID, cfg.Client.UserName)
 			if err != nil {
 				logger.Error("Failed to create room", zap.Error(err))
 				os.Exit(1)
@@ -149,7 +150,7 @@ func main() {
 	} else if cfg.Client.Mode == "send" {
 		// 检查房间是否存在
 		logger.Info("Checking room existence...", zap.Uint64("liveID", cfg.Client.LiveID))
-		err := wsClient.CheckRoom(cfg.Client.LiveID, cfg.Client.UserID, cfg.Client.UserName)
+		err := wsClient.CheckRoom(ctx, cfg.Client.LiveID, cfg.Client.UserID, cfg.Client.UserName)
 		if err != nil {
 			logger.Error("Room check failed", zap.Error(err))
 			cancel()
@@ -171,7 +172,7 @@ func main() {
 				case <-ticker.C:
 					count++
 					content := fmt.Sprintf("Bullet %d from user %d", count, cfg.Client.UserID)
-					if err := wsClient.SendBullet(content); err != nil {
+					if err := wsClient.SendBullet(ctx, content); err != nil {
 						logger.Warn("Failed to send bullet", zap.Error(err))
 					}
 				}
@@ -200,9 +201,9 @@ func attemptReconnect(ctx context.Context, wsClient *connection.Client, cfg *con
 			return false
 		default:
 			logger.Info("Attempting WebSocket reconnect", zap.Int("attempt", i+1))
-			newWsClient, err := connection.NewClient(cfg)
+			newWsClient, err := connection.NewClient(ctx, cfg)
 			if err == nil {
-				wsClient.Close()
+				wsClient.Close(ctx)
 				*wsClient = *newWsClient
 				logger.Info("WebSocket reconnected successfully")
 				return true
@@ -221,9 +222,9 @@ func attemptQuicReconnect(ctx context.Context, quicClient *connection.QuicClient
 			return false
 		default:
 			logger.Info("Attempting QUIC reconnect", zap.Int("attempt", i+1))
-			newQuicClient, err := connection.NewQuicClient(cfg)
+			newQuicClient, err := connection.NewQuicClient(ctx, cfg)
 			if err == nil {
-				quicClient.Close()
+				quicClient.Close(ctx)
 				*quicClient = *newQuicClient
 				logger.Info("QUIC reconnected successfully")
 				return true

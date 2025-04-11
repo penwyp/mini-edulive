@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"github.com/penwyp/mini-edulive/internal/core/websocket"
@@ -29,5 +31,5 @@ func main() {
 
 	// 启动系统
 	gateway := websocket.NewServer(configMgr.GetConfig())
-	gateway.Start()
+	gateway.Start(context.Background())
 }

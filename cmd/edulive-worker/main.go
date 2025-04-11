@@ -51,8 +51,10 @@ func main() {
 		}
 	}()
 
+	ctx := context.Background()
+
 	// Initialize worker
-	w, err := worker.NewWorker(cfg)
+	w, err := worker.NewWorker(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create worker", zap.Error(err))
 	}
@@ -76,7 +78,7 @@ func main() {
 
 	// Cleanup
 	cancel()
-	w.Close()
+	w.Close(ctx)
 	wg.Wait()
 	logger.Sync()
 	logger.Info("Worker stopped gracefully")

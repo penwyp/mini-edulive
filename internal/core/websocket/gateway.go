@@ -52,9 +52,9 @@ func NewServer(cfg *config.Config) *Server {
 	}
 }
 
-func (s *Server) Start() {
+func (s *Server) Start(spanCtx context.Context) {
 	// 创建根 Span 用于追踪整个服务启动
-	ctx, span := observability.StartSpan(context.Background(), "gateway.Start",
+	ctx, span := observability.StartSpan(spanCtx, "gateway.Start",
 		trace.WithAttributes(
 			attribute.String("port", s.config.App.Port),
 		))
