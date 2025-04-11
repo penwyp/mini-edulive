@@ -1,4 +1,3 @@
-// pkg/kafka/kafka.go
 package kafka
 
 import (

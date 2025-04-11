@@ -1,4 +1,3 @@
-// internal/core/websocket/gateway.go
 package websocket
 
 import (

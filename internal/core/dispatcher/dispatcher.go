@@ -1,4 +1,3 @@
-// internal/core/dispatcher/dispatcher.go
 package dispatcher
 
 import (

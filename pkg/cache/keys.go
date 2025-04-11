@@ -1,4 +1,3 @@
-// pkg/cache/keys.go
 package cache
 
 import "fmt"
