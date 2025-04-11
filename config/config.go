@@ -2,16 +2,17 @@ package config
 
 import (
 	"fmt"
-	"github.com/fsnotify/fsnotify"
-	"github.com/penwyp/mini-edulive/pkg/protocol"
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
-	"gopkg.in/yaml.v2"
 	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"gopkg.in/yaml.v2"
 )
 
 var configMgr *ConfigManager

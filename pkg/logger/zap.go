@@ -1,10 +1,11 @@
 package logger
 
 import (
-	"github.com/penwyp/mini-edulive/config"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/penwyp/mini-edulive/config"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

@@ -2,9 +2,10 @@ package worker
 
 import (
 	"context"
-	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"sync"
 	"time"
+
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 
 	"github.com/penwyp/mini-edulive/config"
 	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"

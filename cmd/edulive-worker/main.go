@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/internal/core/worker"

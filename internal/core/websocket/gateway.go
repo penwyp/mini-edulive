@@ -4,10 +4,11 @@ package websocket
 import (
 	"context"
 	"encoding/binary"
-	"github.com/segmentio/kafka-go"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/segmentio/kafka-go"
 
 	"github.com/coder/websocket"
 	"github.com/penwyp/mini-edulive/config"
