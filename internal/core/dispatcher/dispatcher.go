@@ -4,7 +4,7 @@ package dispatcher
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
+	"github.com/penwyp/mini-edulive/pkg/util"
 	"strconv"
 	"sync"
 	"time"
@@ -43,7 +43,7 @@ func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
 		return nil, err
 	}
 
-	quicListener, err := quic.ListenAddr(cfg.Distributor.QUIC.Addr, generateTLSConfig(cfg.Distributor.QUIC), nil)
+	quicListener, err := quic.ListenAddr(cfg.Distributor.QUIC.Addr, util.GenerateTLSConfig(cfg.Distributor.QUIC.CertFile, cfg.Distributor.QUIC.KeyFile), nil)
 	if err != nil {
 		logger.Error("Failed to start QUIC listener", zap.Error(err))
 		return nil, err
@@ -298,17 +298,6 @@ func (d *Dispatcher) Close() {
 	d.redisClient.Close()
 	d.wg.Wait()
 	logger.Info("Dispatcher closed")
-}
-
-func generateTLSConfig(quicConf config.QUIC) *tls.Config {
-	cert, err := tls.LoadX509KeyPair(quicConf.CertFile, quicConf.KeyFile)
-	if err != nil {
-		logger.Panic("Failed to load TLS cert", zap.Error(err))
-	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		NextProtos:   []string{"quic-edulive"},
-	}
 }
 
 func readStream(stream quic.Stream) ([]byte, error) {

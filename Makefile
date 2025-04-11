@@ -64,7 +64,7 @@ run-gateway: build-gateway
 	$(BIN_DIR)/$(GATEWAY_BINARY_NAME)
 
 .PHONY: run-client
-run-client: build-client quic
+run-client: build-client
 	@rm -f logs/edulive_client.log  # 清理日志文件
 	$(BIN_DIR)/$(CLIENT_BINARY_NAME)
 
@@ -74,7 +74,7 @@ run-worker: build-worker
 	$(BIN_DIR)/$(WORKER_BINARY_NAME)
 
 .PHONY: run-dispatcher
-run-dispatcher: build-dispatcher quic
+run-dispatcher: build-dispatcher
 	@rm -f logs/edulive_dispatcher.log  # Cleanup log file
 	$(BIN_DIR)/$(DISPATCHER_BINARY_NAME)
 
@@ -244,6 +244,7 @@ protocol:
 
 .PHONY: quic
 quic:
+	@mkdir -p test/ssl
 	@echo "Checking QUIC HTTPS certificates..."
 	@if [ -f test/ssl/cert.pem ] && openssl x509 -checkend 0 -in test/ssl/cert.pem > /dev/null 2>&1; then \
 		echo "Certificates already exist and are not expired. Skipping generation."; \

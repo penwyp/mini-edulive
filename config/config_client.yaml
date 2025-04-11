@@ -8,8 +8,8 @@ distributor:
   quic:
     enabled: true
     addr: "localhost:8484"
-    certFile: "data/cert.pem"
-    keyFile: "data/key.pem"
+    certFile: "test/ssl/cert.pem"
+    keyFile: "test/ssl/key.pem"
 client:
   liveID: 10000
   userID: 20003

@@ -42,8 +42,10 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	client := &Client{
 		cfg:      cfg,
 		conn:     conn,
-		userID:   cfg.Client.UserID,
 		liveID:   cfg.Client.LiveID,
+		userID:   cfg.Client.UserID,
+		userName: cfg.Client.UserName,
+		mutex:    sync.RWMutex{},
 		isClosed: false,
 	}
 

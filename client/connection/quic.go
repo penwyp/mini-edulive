@@ -3,9 +3,8 @@ package connection
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
-	"io/ioutil"
+	"github.com/penwyp/mini-edulive/pkg/util"
 	"sync"
 	"time"
 
@@ -32,11 +31,7 @@ type QuicClient struct {
 // NewQuicClient 创建新的 QUIC 客户端
 func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 	// 加载 TLS 证书
-	tlsConfig, err := loadTLSConfig(cfg.Distributor.QUIC.CertFile)
-	if err != nil {
-		logger.Error("Failed to load TLS config", zap.Error(err))
-		return nil, fmt.Errorf("load TLS config failed: %w", err)
-	}
+	tlsConfig := util.GenerateTLSConfig(cfg.Distributor.QUIC.CertFile, cfg.Distributor.QUIC.KeyFile)
 
 	// 建立 QUIC 连接
 	conn, err := quic.DialAddr(context.Background(), cfg.Distributor.QUIC.Addr, tlsConfig, &quic.Config{
@@ -81,27 +76,6 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 		zap.Uint64("liveID", client.liveID))
 
 	return client, nil
-}
-
-// loadTLSConfig 加载 TLS 证书
-func loadTLSConfig(certFile string) (*tls.Config, error) {
-	// 读取证书
-	certBytes, err := ioutil.ReadFile(certFile)
-	if err != nil {
-		return nil, fmt.Errorf("read cert file failed: %w", err)
-	}
-
-	// 创建证书池
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(certBytes) {
-		return nil, fmt.Errorf("append cert to pool failed")
-	}
-
-	return &tls.Config{
-		RootCAs:            pool,
-		InsecureSkipVerify: false, // 生产环境应设置为 false，确保证书验证
-		NextProtos:         []string{"quic-edulive"},
-	}, nil
 }
 
 // sendInitMessage 发送初始化消息
