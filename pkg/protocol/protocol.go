@@ -4,20 +4,26 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"github.com/klauspost/compress/zstd"
-	"sync"
+	"github.com/penwyp/mini-edulive/pkg/pool"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // 全局 zstd 编码器和解码器（复用以提升性能）
 var (
-	zstdEncoder, _    = zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
-	zstdDecoder, _    = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
-	bulletMessagePool = sync.Pool{
-		New: func() interface{} {
-			return &BulletMessage{}
-		},
-	}
+	zstdEncoder, _ = zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+	zstdDecoder, _ = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
+
+	// BulletMessage 池
+	bulletMessagePool = pool.RegisterPool("bullet_message", func() *BulletMessage {
+		return &BulletMessage{}
+	})
+
+	// bytes.Buffer 池
+	bufferPool = pool.RegisterPool("bytes_buffer", func() *bytes.Buffer {
+		return new(bytes.Buffer)
+	})
 )
 
 const (
@@ -52,21 +58,31 @@ type BulletMessage struct {
 	Color     string // 颜色
 }
 
-// GetBulletMessage 从池中获取 BulletMessage
-func GetBulletMessage() *BulletMessage {
-	return bulletMessagePool.Get().(*BulletMessage)
+// Reset 重置 BulletMessage 的所有字段
+func (msg *BulletMessage) Reset() {
+	msg.Magic = 0
+	msg.Version = 0
+	msg.Type = 0
+	msg.Timestamp = 0
+	msg.UserID = 0
+	msg.LiveID = 0
+	msg.UserName = ""
+	msg.Content = ""
+	msg.Color = ""
 }
 
-// PutBulletMessage 将 BulletMessage 放回池中
-func PutBulletMessage(msg *BulletMessage) {
-	// 重置字段以避免内存泄漏
-	*msg = BulletMessage{}
+// Release 归还 BulletMessage 到池中
+func (msg *BulletMessage) Release() {
+	msg.Reset()
 	bulletMessagePool.Put(msg)
 }
 
 // Encode 将 BulletMessage 编码为二进制数据，支持可选压缩
 func (msg *BulletMessage) Encode(compress bool) ([]byte, error) {
-	buf := new(bytes.Buffer)
+	// 从池中获取 bytes.Buffer
+	buf := bufferPool.Get()
+	buf.Reset()               // 清空缓冲区
+	defer bufferPool.Put(buf) // 使用后归还
 
 	// 写入固定字段
 	if err := binary.Write(buf, binary.BigEndian, msg.Magic); err != nil {
@@ -138,6 +154,10 @@ func Decode(data []byte) (*BulletMessage, error) {
 		return nil, errors.New("data too short")
 	}
 
+	// 从池中获取 BulletMessage
+	msg := bulletMessagePool.Get()
+	msg.Reset()
+
 	// 读取压缩标志位
 	isCompressed := data[0] == 1
 	rawData := data[1:]
@@ -146,67 +166,79 @@ func Decode(data []byte) (*BulletMessage, error) {
 		// 解压数据
 		decompressed, err := zstdDecoder.DecodeAll(rawData, nil)
 		if err != nil {
+			msg.Release() // 错误时归还
 			return nil, errors.New("failed to decompress data")
 		}
 		rawData = decompressed
 	}
 
 	if len(rawData) < 20 {
+		msg.Release() // 错误时归还
 		return nil, errors.New("data too short after decompression")
 	}
 
 	reader := bytes.NewReader(rawData)
-	msg := &BulletMessage{}
 
 	// 读取魔数
 	if err := binary.Read(reader, binary.BigEndian, &msg.Magic); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	if msg.Magic != MagicNumber {
+		msg.Release()
 		return nil, errors.New("invalid magic number")
 	}
 
 	// 读取版本
 	if err := binary.Read(reader, binary.BigEndian, &msg.Version); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	if msg.Version != CurrentVersion {
+		msg.Release()
 		return nil, errors.New("unsupported version")
 	}
 
 	// 读取类型
 	if err := binary.Read(reader, binary.BigEndian, &msg.Type); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	if msg.Type != TypeBullet &&
 		msg.Type != TypeHeartbeat &&
 		msg.Type != TypeCreateRoom &&
 		msg.Type != TypeCheckRoom {
+		msg.Release()
 		return nil, errors.New("invalid message type")
 	}
 
 	// 读取时间戳
 	if err := binary.Read(reader, binary.BigEndian, &msg.Timestamp); err != nil {
+		msg.Release()
 		return nil, err
 	}
 
 	// 读取用户ID
 	if err := binary.Read(reader, binary.BigEndian, &msg.UserID); err != nil {
+		msg.Release()
 		return nil, err
 	}
 
 	// 读取直播间ID
 	if err := binary.Read(reader, binary.BigEndian, &msg.LiveID); err != nil {
+		msg.Release()
 		return nil, err
 	}
 
 	// 读取用户名
 	var usernameLen uint16
 	if err := binary.Read(reader, binary.BigEndian, &usernameLen); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	usernameBytes := make([]byte, usernameLen)
 	if err := binary.Read(reader, binary.BigEndian, &usernameBytes); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	msg.UserName = string(usernameBytes)
@@ -214,10 +246,12 @@ func Decode(data []byte) (*BulletMessage, error) {
 	// 读取内容
 	var contentLen uint16
 	if err := binary.Read(reader, binary.BigEndian, &contentLen); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	contentBytes := make([]byte, contentLen)
 	if err := binary.Read(reader, binary.BigEndian, &contentBytes); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	msg.Content = string(contentBytes)
@@ -225,10 +259,12 @@ func Decode(data []byte) (*BulletMessage, error) {
 	// 读取颜色
 	var colorLen uint16
 	if err := binary.Read(reader, binary.BigEndian, &colorLen); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	colorBytes := make([]byte, colorLen)
 	if err := binary.Read(reader, binary.BigEndian, &colorBytes); err != nil {
+		msg.Release()
 		return nil, err
 	}
 	msg.Color = string(colorBytes)
@@ -238,62 +274,57 @@ func Decode(data []byte) (*BulletMessage, error) {
 
 // NewBulletMessage 创建弹幕消息
 func NewBulletMessage(liveID, userID uint64, username, content, color string) *BulletMessage {
+	msg := bulletMessagePool.Get()
+	msg.Reset()
+	msg.Magic = MagicNumber
+	msg.Version = CurrentVersion
+	msg.Type = TypeBullet
+	msg.Timestamp = time.Now().UnixMilli()
+	msg.UserID = userID
+	msg.LiveID = liveID
+	msg.UserName = username
+	msg.Content = content
 	if color == "" {
 		color = "white" // 默认颜色
 	}
-	return &BulletMessage{
-		Magic:     MagicNumber,
-		Version:   CurrentVersion,
-		Type:      TypeBullet,
-		Timestamp: time.Now().UnixMilli(),
-		UserID:    userID,
-		LiveID:    liveID,
-		UserName:  username,
-		Content:   content,
-		Color:     color,
-	}
+	msg.Color = color
+	return msg
 }
 
 // NewHeartbeatMessage 创建心跳消息
 func NewHeartbeatMessage(userID uint64) *BulletMessage {
-	return &BulletMessage{
-		Magic:     MagicNumber,
-		Version:   CurrentVersion,
-		Type:      TypeHeartbeat,
-		Timestamp: time.Now().UnixMilli(),
-		UserID:    userID,
-		UserName:  "",
-		Content:   "",
-		Color:     "",
-	}
+	msg := bulletMessagePool.Get()
+	msg.Reset()
+	msg.Magic = MagicNumber
+	msg.Version = CurrentVersion
+	msg.Type = TypeHeartbeat
+	msg.Timestamp = time.Now().UnixMilli()
+	msg.UserID = userID
+	return msg
 }
 
 // NewCreateRoomMessage 创建直播间消息
 func NewCreateRoomMessage(liveID, userID uint64) *BulletMessage {
-	return &BulletMessage{
-		Magic:     MagicNumber,
-		Version:   CurrentVersion,
-		Type:      TypeCreateRoom,
-		Timestamp: time.Now().UnixMilli(),
-		UserID:    userID,
-		LiveID:    liveID,
-		UserName:  "",
-		Content:   "",
-		Color:     "",
-	}
+	msg := bulletMessagePool.Get()
+	msg.Reset()
+	msg.Magic = MagicNumber
+	msg.Version = CurrentVersion
+	msg.Type = TypeCreateRoom
+	msg.Timestamp = time.Now().UnixMilli()
+	msg.UserID = userID
+	msg.LiveID = liveID
+	return msg
 }
 
 // NewCheckRoomMessage 创建检查房间消息
 func NewCheckRoomMessage(liveID, userID uint64) *BulletMessage {
-	return &BulletMessage{
-		Magic:     MagicNumber,
-		Version:   CurrentVersion,
-		Type:      TypeCheckRoom,
-		Timestamp: time.Now().UnixMilli(),
-		UserID:    userID,
-		LiveID:    liveID,
-		UserName:  "",
-		Content:   "",
-		Color:     "",
-	}
+	msg := bulletMessagePool.Get()
+	msg.Reset()
+	msg.Magic = MagicNumber
+	msg.Version = CurrentVersion
+	msg.Type = TypeCheckRoom
+	msg.Timestamp = time.Now().UnixMilli()
+	msg.UserID = userID
+	msg.LiveID = liveID
+	return msg
 }

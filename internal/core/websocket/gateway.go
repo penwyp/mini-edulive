@@ -200,6 +200,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.String("userName", msg.UserName),
 				zap.String("result", content))
 		}
+
+		msg.Release()
 	}
 }
 

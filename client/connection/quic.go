@@ -186,6 +186,7 @@ func (c *QuicClient) Receive(ctx context.Context) error {
 				//	zap.String("username", bullet.UserName),
 				//	zap.String("content", bullet.Content),
 				//	zap.Int64("timestamp", bullet.Timestamp))
+				bullet.Release() // 使用后归还
 			}
 		}
 	}

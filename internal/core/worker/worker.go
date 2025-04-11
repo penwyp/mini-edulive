@@ -77,6 +77,8 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 			zap.Error(err))
 		return
 	}
+	defer bullet.Release()
+
 	logger.Debug("Message decoded",
 		zap.Uint64("liveID", bullet.LiveID),
 		zap.Uint64("userID", bullet.UserID),

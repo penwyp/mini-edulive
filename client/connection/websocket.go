@@ -175,6 +175,8 @@ func (c *Client) CreateRoom(liveID, userID uint64, userName string) error {
 		return fmt.Errorf("decode create room response failed: %w", err)
 	}
 
+	defer resp.Release()
+
 	if resp.Type != protocol.TypeCreateRoom {
 		return fmt.Errorf("unexpected response type: %d", resp.Type)
 	}
@@ -225,6 +227,8 @@ func (c *Client) CheckRoom(liveID, userID uint64, userName string) error {
 	if err != nil {
 		return fmt.Errorf("decode check room response failed: %w", err)
 	}
+
+	defer resp.Release()
 
 	if resp.Type != protocol.TypeCheckRoom {
 		return fmt.Errorf("unexpected response type: %d", resp.Type)

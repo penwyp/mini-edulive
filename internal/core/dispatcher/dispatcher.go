@@ -107,6 +107,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 		stream.Close()
 		return
 	}
+	defer msg.Release()
 
 	d.mutex.Lock()
 	d.clients[msg.UserID] = &ClientInfo{
