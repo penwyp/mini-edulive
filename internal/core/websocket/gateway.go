@@ -7,20 +7,25 @@ import (
 	"sync"
 	"time"
 
-	"github.com/segmentio/kafka-go"
-
 	"github.com/coder/websocket"
 	"github.com/penwyp/mini-edulive/config"
 	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
 	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"github.com/penwyp/mini-edulive/pkg/logger"
+	"github.com/penwyp/mini-edulive/pkg/pool"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
 	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
 
 // BackDoorLiveRoomID 是一个特殊的直播间 ID，用于测试或调试目的
 const BackDoorLiveRoomID = 10000
+
+// Kafka key 字节切片的池
+var kafkaKeyPool = pool.RegisterPool("kafka_key", func() []byte {
+	return make([]byte, 8)
+})
 
 type Server struct {
 	pool        *ConnPool
@@ -85,6 +90,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			logger.Warn("Failed to decode message", zap.Error(err))
 			continue
 		}
+		defer msg.Release() // 解码后确保归还
 
 		if userID == 0 {
 			userID = msg.UserID
@@ -122,22 +128,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.String("userName", msg.UserName))
 
 			if exist, isBackdoor := s.isLiveRoomExists(r.Context(), msg.LiveID); exist && !isBackdoor {
-				resp := &protocol.BulletMessage{
-					Magic:     protocol.MagicNumber,
-					Version:   protocol.CurrentVersion,
-					Type:      protocol.TypeCreateRoom,
-					Timestamp: time.Now().UnixMilli(),
-					UserID:    msg.UserID,
-					LiveID:    msg.LiveID,
-					Content:   "Live room already exists",
-				}
+				resp := protocol.NewCreateRoomMessage(msg.LiveID, msg.UserID)
+				resp.Content = "Live room already exists"
 				respData, err := resp.Encode(s.config.Performance.BulletCompression)
 				if err != nil {
 					logger.Error("Failed to encode error response", zap.Error(err))
+					resp.Release()
 					continue
 				}
 				conn.Write(r.Context(), websocket.MessageBinary, respData)
 				conn.Close(websocket.StatusInvalidFramePayloadData, "Duplicate liveID")
+				resp.Release()
 				return
 			}
 
@@ -152,17 +153,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			respData, err := resp.Encode(s.config.Performance.BulletCompression)
 			if err != nil {
 				logger.Error("Failed to encode response", zap.Error(err))
+				resp.Release()
 				continue
 			}
 			err = conn.Write(r.Context(), websocket.MessageBinary, respData)
 			if err != nil {
 				logger.Error("Failed to send response", zap.Error(err))
+				resp.Release()
 				continue
 			}
 			logger.Info("Create room response sent",
 				zap.Uint64("liveID", msg.LiveID),
 				zap.Uint64("userID", msg.UserID),
 				zap.String("userName", msg.UserName))
+			resp.Release()
 
 		case protocol.TypeCheckRoom:
 			logger.Info("Received check room request",
@@ -175,23 +179,18 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if !exists {
 				content = "not exists"
 			}
-			resp := &protocol.BulletMessage{
-				Magic:     protocol.MagicNumber,
-				Version:   protocol.CurrentVersion,
-				Type:      protocol.TypeCheckRoom,
-				Timestamp: time.Now().UnixMilli(),
-				UserID:    msg.UserID,
-				LiveID:    msg.LiveID,
-				Content:   content,
-			}
+			resp := protocol.NewCheckRoomMessage(msg.LiveID, msg.UserID)
+			resp.Content = content
 			respData, err := resp.Encode(s.config.Performance.BulletCompression)
 			if err != nil {
 				logger.Error("Failed to encode check room response", zap.Error(err))
+				resp.Release()
 				continue
 			}
 			err = conn.Write(r.Context(), websocket.MessageBinary, respData)
 			if err != nil {
 				logger.Error("Failed to send check room response", zap.Error(err))
+				resp.Release()
 				continue
 			}
 			logger.Info("Check room response sent",
@@ -199,9 +198,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.Uint64("userID", msg.UserID),
 				zap.String("userName", msg.UserName),
 				zap.String("result", content))
+			resp.Release()
 		}
-
-		msg.Release()
 	}
 }
 
@@ -255,7 +253,10 @@ func (s *Server) sendToKafka(ctx context.Context, msg *protocol.BulletMessage) e
 		return err
 	}
 
-	key := make([]byte, 8)
+	// 从池中获取 key 切片
+	key := kafkaKeyPool.Get()
+	defer kafkaKeyPool.Put(key) // 使用后归还
+
 	binary.BigEndian.PutUint64(key, msg.LiveID)
 
 	err = s.kafka.WriteMessages(ctx,

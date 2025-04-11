@@ -5,20 +5,27 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"github.com/penwyp/mini-edulive/internal/core/websocket"
-	"github.com/penwyp/mini-edulive/pkg/util"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/websocket"
 	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
 	"github.com/penwyp/mini-edulive/pkg/logger"
+	"github.com/penwyp/mini-edulive/pkg/pool"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/penwyp/mini-edulive/pkg/util"
 	"github.com/quic-go/quic-go"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
+
+// BulletMessage 切片的池，初始容量为 100
+var bulletSlicePool = pool.RegisterPool("bullet_slice", func() []*protocol.BulletMessage {
+	return make([]*protocol.BulletMessage, 0, 100)
+})
 
 type Dispatcher struct {
 	config       *config.Config
@@ -107,7 +114,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 		stream.Close()
 		return
 	}
-	defer msg.Release()
+	defer msg.Release() // 确保归还
 
 	d.mutex.Lock()
 	d.clients[msg.UserID] = &ClientInfo{
@@ -157,6 +164,7 @@ func (d *Dispatcher) pushBullets() {
 	}
 
 	if len(bullets) == 0 {
+		bulletSlicePool.Put(bullets) // 无弹幕时归还切片
 		return
 	}
 
@@ -174,7 +182,7 @@ func (d *Dispatcher) pushBullets() {
 			continue
 		}
 
-		// 编码弹幕消息（无压缩）
+		// 编码弹幕消息
 		data, err := d.encodeBullets(clientBullets)
 		if err != nil {
 			logger.Error("Failed to encode bullets for client",
@@ -195,6 +203,12 @@ func (d *Dispatcher) pushBullets() {
 	}
 	d.mutex.RUnlock()
 
+	// 归还所有 BulletMessage 和切片
+	for _, bullet := range bullets {
+		bullet.Release()
+	}
+	bulletSlicePool.Put(bullets)
+
 	logger.Debug("Bullets pushed",
 		zap.Int("bullet_count", len(bullets)),
 		zap.Duration("total_time", time.Since(startTime)))
@@ -202,7 +216,15 @@ func (d *Dispatcher) pushBullets() {
 
 // encodeBullets 编码弹幕消息
 func (d *Dispatcher) encodeBullets(bullets []*protocol.BulletMessage) ([]byte, error) {
-	var buf bytes.Buffer
+	// 从池中获取 bytes.Buffer
+	bufPool, err := pool.GetPool[*bytes.Buffer]("bytes_buffer")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bytes_buffer pool: %v", err)
+	}
+	buf := bufPool.Get()
+	buf.Reset()            // 清空缓冲区
+	defer bufPool.Put(buf) // 使用后归还
+
 	for _, bullet := range bullets {
 		data, err := bullet.Encode(d.config.Performance.BulletCompression)
 		if err != nil {
@@ -210,7 +232,7 @@ func (d *Dispatcher) encodeBullets(bullets []*protocol.BulletMessage) ([]byte, e
 			continue
 		}
 		// 写入消息长度（4 字节）+ 消息内容
-		if err := binary.Write(&buf, binary.BigEndian, uint32(len(data))); err != nil {
+		if err := binary.Write(buf, binary.BigEndian, uint32(len(data))); err != nil {
 			return nil, err
 		}
 		buf.Write(data)
@@ -226,15 +248,19 @@ func (d *Dispatcher) sendToClient(stream quic.Stream, data []byte) error {
 }
 
 func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMessage, error) {
+	// 从池中获取切片
+	allBullets := bulletSlicePool.Get()
+	allBullets = allBullets[:0] // 清空切片
+
 	activeRooms, err := d.redisClient.SMembers(ctx, d.keyBuilder.ActiveLiveRoomsKey()).Result()
 	if err != nil {
+		bulletSlicePool.Put(allBullets) // 错误时归还
 		return nil, err
 	}
 	if len(activeRooms) == 0 {
 		activeRooms = []string{util.FormatUint64ToString(websocket.BackDoorLiveRoomID)}
 	}
 
-	var allBullets []*protocol.BulletMessage
 	for _, roomStr := range activeRooms {
 		liveID, err := strconv.ParseUint(roomStr, 10, 64)
 		if err != nil {
@@ -261,18 +287,16 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 			continue
 		}
 
-		// 构造 BulletMessage
-		bullet := &protocol.BulletMessage{
-			Magic:     protocol.MagicNumber,
-			Version:   protocol.CurrentVersion,
-			Type:      protocol.TypeBullet,
-			Timestamp: serializedBullet.Timestamp,
-			UserID:    serializedBullet.UserID,
-			LiveID:    serializedBullet.LiveID,
-			UserName:  serializedBullet.UserName,
-			Content:   serializedBullet.Content,
-			Color:     util.GetDefaultColorOrRandom(serializedBullet.Color),
-		}
+		// 从池中获取 BulletMessage
+		bullet := protocol.NewBulletMessage(
+			serializedBullet.LiveID,
+			serializedBullet.UserID,
+			serializedBullet.UserName,
+			serializedBullet.Content,
+			serializedBullet.Color,
+		)
+		bullet.Timestamp = serializedBullet.Timestamp
+		bullet.Color = util.GetDefaultColorOrRandom(serializedBullet.Color)
 
 		allBullets = append(allBullets, bullet)
 		logger.Debug("Fetched and parsed bullet",
