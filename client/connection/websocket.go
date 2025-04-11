@@ -3,6 +3,8 @@ package connection
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -12,213 +14,238 @@ import (
 	"go.uber.org/zap"
 )
 
-// Client WebSocket 客户端
+// Client 表示 WebSocket 客户端
 type Client struct {
-	conn    *websocket.Conn
-	config  *config.Config
-	liveID  uint64
-	userID  uint64
-	filters *SensitiveFilter // 本地敏感词过滤器
+	cfg      *config.Config
+	conn     *websocket.Conn
+	userID   uint64
+	liveID   uint64
+	mutex    sync.RWMutex // 保护连接状态
+	isClosed bool
 }
 
-// NewClient 创建 WebSocket 客户端
+// NewClient 创建新的 WebSocket 客户端
 func NewClient(cfg *config.Config) (*Client, error) {
-	conn, _, err := websocket.Dial(context.Background(), cfg.WebSocket.Endpoint, nil)
+	// 建立 WebSocket 连接
+	conn, _, err := websocket.Dial(context.Background(), cfg.WebSocket.Endpoint, &websocket.DialOptions{
+		HTTPHeader: http.Header{
+			"User-Agent": []string{"edulive-client/1.0"},
+		},
+		CompressionMode: websocket.CompressionDisabled,
+	})
 	if err != nil {
-		return nil, err
+		logger.Error("Failed to dial WebSocket", zap.Error(err))
+		return nil, fmt.Errorf("websocket dial failed: %w", err)
 	}
 
-	// 初始化敏感词过滤器
-	filters := NewSensitiveFilter()
-	filters.AddWords([]string{"敏感词1", "敏感词2"}) // 示例敏感词，可从配置文件加载
+	client := &Client{
+		cfg:      cfg,
+		conn:     conn,
+		userID:   cfg.Client.UserID,
+		liveID:   cfg.Client.LiveID,
+		isClosed: false,
+	}
 
-	return &Client{
-		conn:    conn,
-		config:  cfg,
-		liveID:  cfg.Client.LiveID,
-		userID:  cfg.Client.UserID,
-		filters: filters,
-	}, nil
+	logger.Info("WebSocket client initialized",
+		zap.String("endpoint", cfg.WebSocket.Endpoint),
+		zap.Uint64("userID", client.userID),
+		zap.Uint64("liveID", client.liveID))
+
+	return client, nil
 }
 
-// SendBullet 发送弹幕消息
-func (c *Client) SendBullet(content string) error {
-	// 本地敏感词过滤
-	if c.filters.Contains(content) {
-		logger.Warn("Bullet contains sensitive words", zap.String("content", content))
-		return nil // 直接丢弃，不发送
-	}
-
-	msg := protocol.NewBulletMessage(c.liveID, c.userID, content)
-	data, err := msg.Encode()
-	if err != nil {
-		return err
-	}
-
-	err = c.conn.Write(context.Background(), websocket.MessageBinary, data)
-	if err != nil {
-		logger.Warn("Failed to send bullet", zap.Error(err))
-		return err
-	}
-	logger.Info("Bullet sent", zap.Uint64("userID", c.userID), zap.String("content", content))
-	return nil
-}
-
-// SendHeartbeat 发送心跳消息
-func (c *Client) SendHeartbeat() error {
-	msg := protocol.NewHeartbeatMessage(c.userID)
-	data, err := msg.Encode()
-	if err != nil {
-		return err
-	}
-
-	err = c.conn.Write(context.Background(), websocket.MessageBinary, data)
-	if err != nil {
-		logger.Warn("Failed to send heartbeat", zap.Error(err))
-		return err
-	}
-	logger.Debug("Heartbeat sent", zap.Uint64("userID", c.userID))
-	return nil
-}
-
-// StartHeartbeat 启动心跳循环
-func (c *Client) StartHeartbeat(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
+// StartHeartbeat 启动心跳机制
+func (c *Client) StartHeartbeat(ctx context.Context) error {
+	ticker := time.NewTicker(30 * time.Second) // 每 30 秒发送一次心跳
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			logger.Info("Heartbeat stopped due to context cancellation")
+			return nil
 		case <-ticker.C:
-			if err := c.SendHeartbeat(); err != nil {
-				logger.Error("Heartbeat failed", zap.Error(err))
-				return
+			if err := c.sendHeartbeat(); err != nil {
+				logger.Warn("Failed to send heartbeat", zap.Error(err))
+				return fmt.Errorf("heartbeat failed: %w", err)
 			}
 		}
 	}
 }
 
-// Close 关闭连接
-func (c *Client) Close() {
-	c.conn.Close(websocket.StatusNormalClosure, "")
-	logger.Info("WebSocket client closed", zap.Uint64("userID", c.userID))
-}
-
-// SensitiveFilter 敏感词过滤器（基于 Trie 树）
-type SensitiveFilter struct {
-	root *TrieNode
-}
-
-type TrieNode struct {
-	children map[rune]*TrieNode
-	isEnd    bool
-}
-
-func NewSensitiveFilter() *SensitiveFilter {
-	return &SensitiveFilter{root: &TrieNode{children: make(map[rune]*TrieNode)}}
-}
-
-func (f *SensitiveFilter) AddWord(word string) {
-	node := f.root
-	for _, ch := range word {
-		if _, ok := node.children[ch]; !ok {
-			node.children[ch] = &TrieNode{children: make(map[rune]*TrieNode)}
-		}
-		node = node.children[ch]
+// sendHeartbeat 发送心跳消息
+func (c *Client) sendHeartbeat() error {
+	c.mutex.RLock()
+	if c.isClosed {
+		c.mutex.RUnlock()
+		return fmt.Errorf("connection is closed")
 	}
-	node.isEnd = true
-}
+	conn := c.conn
+	c.mutex.RUnlock()
 
-func (f *SensitiveFilter) AddWords(words []string) {
-	for _, word := range words {
-		f.AddWord(word)
+	msg := protocol.NewHeartbeatMessage(c.userID)
+	data, err := msg.Encode()
+	if err != nil {
+		return fmt.Errorf("encode heartbeat failed: %w", err)
 	}
-}
 
-func (f *SensitiveFilter) Contains(content string) bool {
-	runes := []rune(content)
-	for i := 0; i < len(runes); i++ {
-		node := f.root
-		for j := i; j < len(runes); j++ {
-			if next, ok := node.children[runes[j]]; ok {
-				node = next
-				if node.isEnd {
-					return true
-				}
-			} else {
-				break
-			}
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = conn.Write(ctx, websocket.MessageBinary, data)
+	if err != nil {
+		return fmt.Errorf("write heartbeat failed: %w", err)
 	}
-	return false
+
+	logger.Debug("Heartbeat sent", zap.Uint64("userID", c.userID))
+	return nil
 }
 
-// CreateRoom 发送创建直播间请求
+// SendBullet 发送弹幕消息
+func (c *Client) SendBullet(content string) error {
+	c.mutex.RLock()
+	if c.isClosed {
+		c.mutex.RUnlock()
+		return fmt.Errorf("connection is closed")
+	}
+	conn := c.conn
+	c.mutex.RUnlock()
+
+	msg := protocol.NewBulletMessage(c.liveID, c.userID, content)
+	data, err := msg.Encode()
+	if err != nil {
+		return fmt.Errorf("encode bullet failed: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = conn.Write(ctx, websocket.MessageBinary, data)
+	if err != nil {
+		return fmt.Errorf("write bullet failed: %w", err)
+	}
+
+	logger.Info("Bullet sent",
+		zap.Uint64("userID", c.userID),
+		zap.Uint64("liveID", c.liveID),
+		zap.String("content", content))
+	return nil
+}
+
+// CreateRoom 创建直播间
 func (c *Client) CreateRoom(liveID, userID uint64) error {
+	c.mutex.RLock()
+	if c.isClosed {
+		c.mutex.RUnlock()
+		return fmt.Errorf("connection is closed")
+	}
+	conn := c.conn
+	c.mutex.RUnlock()
+
 	msg := protocol.NewCreateRoomMessage(liveID, userID)
 	data, err := msg.Encode()
 	if err != nil {
-		return err
-	}
-	err = c.conn.Write(context.Background(), websocket.MessageBinary, data)
-	if err != nil {
-		return err
+		return fmt.Errorf("encode create room message failed: %w", err)
 	}
 
-	// 等待响应
-	_, respData, err := c.conn.Read(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 发送创建房间请求
+	err = conn.Write(ctx, websocket.MessageBinary, data)
 	if err != nil {
-		return err
+		return fmt.Errorf("write create room message failed: %w", err)
 	}
-	respMsg, err := protocol.Decode(respData)
+
+	// 读取响应
+	_, respData, err := conn.Read(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read create room response failed: %w", err)
 	}
-	if respMsg.Type == protocol.TypeCreateRoom && respMsg.Content != "" {
-		// 服务端返回错误消息
-		logger.Error("Failed to create room",
-			zap.String("error", respMsg.Content))
-		return fmt.Errorf("create room failed: %s", respMsg.Content)
+
+	resp, err := protocol.Decode(respData)
+	if err != nil {
+		return fmt.Errorf("decode create room response failed: %w", err)
 	}
-	if respMsg.Type != protocol.TypeCreateRoom {
-		return fmt.Errorf("unexpected response type: %d", respMsg.Type)
+
+	if resp.Type != protocol.TypeCreateRoom {
+		return fmt.Errorf("unexpected response type: %d", resp.Type)
 	}
-	logger.Info("Received create room response",
-		zap.Uint64("liveID", respMsg.LiveID),
-		zap.Uint64("userID", respMsg.UserID))
+
+	if resp.Content != "" && resp.Content != "Live room created" {
+		return fmt.Errorf("create room failed: %s", resp.Content)
+	}
+
+	logger.Info("Create room request sent",
+		zap.Uint64("liveID", liveID),
+		zap.Uint64("userID", userID))
 	return nil
 }
 
 // CheckRoom 检查直播间是否存在
 func (c *Client) CheckRoom(liveID, userID uint64) error {
+	c.mutex.RLock()
+	if c.isClosed {
+		c.mutex.RUnlock()
+		return fmt.Errorf("connection is closed")
+	}
+	conn := c.conn
+	c.mutex.RUnlock()
+
 	msg := protocol.NewCheckRoomMessage(liveID, userID)
 	data, err := msg.Encode()
 	if err != nil {
-		return err
-	}
-	err = c.conn.Write(context.Background(), websocket.MessageBinary, data)
-	if err != nil {
-		return err
+		return fmt.Errorf("encode check room message failed: %w", err)
 	}
 
-	_, respData, err := c.conn.Read(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 发送检查房间请求
+	err = conn.Write(ctx, websocket.MessageBinary, data)
 	if err != nil {
-		return err
+		return fmt.Errorf("write check room message failed: %w", err)
 	}
-	respMsg, err := protocol.Decode(respData)
+
+	// 读取响应
+	_, respData, err := conn.Read(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read check room response failed: %w", err)
 	}
-	if respMsg.Type != protocol.TypeCheckRoom {
-		return fmt.Errorf("unexpected response type: %d", respMsg.Type)
+
+	resp, err := protocol.Decode(respData)
+	if err != nil {
+		return fmt.Errorf("decode check room response failed: %w", err)
 	}
-	if respMsg.Content == "not exists" {
-		logger.Error("Live room does not exist",
-			zap.Uint64("liveID", liveID))
-		return fmt.Errorf("live room %d does not exist", liveID)
+
+	if resp.Type != protocol.TypeCheckRoom {
+		return fmt.Errorf("unexpected response type: %d", resp.Type)
 	}
-	logger.Info("Live room exists",
-		zap.Uint64("liveID", liveID))
+
+	if resp.Content != "exists" {
+		return fmt.Errorf("room does not exist: %s", resp.Content)
+	}
+
+	logger.Info("Check room request sent",
+		zap.Uint64("liveID", liveID),
+		zap.Uint64("userID", userID),
+		zap.String("result", resp.Content))
 	return nil
+}
+
+// Close 关闭 WebSocket 连接
+func (c *Client) Close() {
+	c.mutex.Lock()
+	if c.isClosed {
+		c.mutex.Unlock()
+		return
+	}
+	c.isClosed = true
+	conn := c.conn
+	c.mutex.Unlock()
+
+	if conn != nil {
+		conn.Close(websocket.StatusNormalClosure, "client closed")
+		logger.Info("WebSocket connection closed", zap.Uint64("userID", c.userID))
+	}
 }
