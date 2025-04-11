@@ -6,6 +6,8 @@ CLIENT_CMD_DIR = cmd/edulive-client
 CLIENT_BINARY_NAME = mini-edulive-client
 WORKER_CMD_DIR = cmd/edulive-worker
 WORKER_BINARY_NAME = mini-edulive-worker
+DISPATCHER_CMD_DIR = cmd/edulive-dispatcher
+DISPATCHER_BINARY_NAME = mini-edulive-dispatcher
 MODULE = github.com/penwyp/mini-edulive
 VERSION = 0.1.0
 BUILD_TIME = $(shell date +%Y-%m-%dT%H:%M:%S%z)
@@ -33,7 +35,7 @@ deps:
 
 # 编译项目并将二进制放入 bin 目录
 .PHONY: build
-build: deps build-gateway build-client build-worker
+build: deps build-gateway build-client build-worker build-dispatcher
 
 .PHONY: build-gateway
 build-gateway: deps
@@ -44,6 +46,11 @@ build-gateway: deps
 build-client: deps
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(CLIENT_BINARY_NAME) $(CLIENT_CMD_DIR)/main.go
+
+.PHONY: build-dispatcher
+build-dispatcher: deps
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/$(DISPATCHER_BINARY_NAME) $(DISPATCHER_CMD_DIR)/main.go
 
 .PHONY: build-worker
 build-worker: deps
@@ -65,6 +72,11 @@ run-client: build-client
 run-worker: build-worker
 	@rm -f logs/edulive_worker.log  # Cleanup log file
 	$(BIN_DIR)/$(WORKER_BINARY_NAME)
+
+.PHONY: run-dispatcher
+run-dispatcher: build-dispatcher
+	@rm -f logs/edulive_dispatcher.log  # Cleanup log file
+	$(BIN_DIR)/$(DISPATCHER_BINARY_NAME)
 
 # 测试
 .PHONY: test

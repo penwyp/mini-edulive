@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"golang.org/x/net/quic"
 	"strconv"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ type Dispatcher struct {
 	config       *config.Config
 	redisClient  *redis.ClusterClient
 	keyBuilder   *pkgcache.RedisKeyBuilder
-	quicListener quic.Listener
+	quicListener *quic.Listener
 	clients      map[uint64]quic.Stream // 客户端连接映射
 	mutex        sync.RWMutex
 	wg           sync.WaitGroup
@@ -70,18 +69,22 @@ func (d *Dispatcher) Start() {
 func (d *Dispatcher) acceptConnections() {
 	defer d.wg.Done()
 	for {
-		session, err := d.quicListener.Accept(context.Background())
+		conn, err := d.quicListener.Accept(context.Background())
 		if err != nil {
 			logger.Error("Failed to accept QUIC connection", zap.Error(err))
-			return
+			// 可选：添加重试逻辑
+			time.Sleep(time.Second)
+			continue
 		}
 
-		go d.handleSession(session)
+		go d.handleConnection(conn)
 	}
 }
 
-func (d *Dispatcher) handleSession(session quic.Session) {
-	stream, err := session.AcceptStream(context.Background())
+func (d *Dispatcher) handleConnection(conn quic.Connection) {
+	defer conn.CloseWithError(0, "connection closed")
+
+	stream, err := conn.AcceptStream(context.Background())
 	if err != nil {
 		logger.Error("Failed to accept QUIC stream", zap.Error(err))
 		return
@@ -105,6 +108,19 @@ func (d *Dispatcher) handleSession(session quic.Session) {
 	d.mutex.Unlock()
 
 	logger.Info("New client connected", zap.Uint64("userID", msg.UserID))
+
+	// 保持流活跃，直到连接关闭
+	for {
+		// 读取流以检测连接是否仍然活跃
+		_, err := readStream(stream)
+		if err != nil {
+			logger.Warn("Stream read error, removing client",
+				zap.Uint64("userID", msg.UserID),
+				zap.Error(err))
+			d.removeClient(msg.UserID)
+			return
+		}
+	}
 }
 
 func (d *Dispatcher) pushBulletLoop() {
@@ -212,7 +228,10 @@ func (d *Dispatcher) sendToClient(stream quic.Stream, data []byte) error {
 
 func (d *Dispatcher) removeClient(userID uint64) {
 	d.mutex.Lock()
-	delete(d.clients, userID)
+	if stream, ok := d.clients[userID]; ok {
+		stream.Close()
+		delete(d.clients, userID)
+	}
 	d.mutex.Unlock()
 }
 
