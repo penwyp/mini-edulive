@@ -303,28 +303,28 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("websocket.idleTimeout", 5*time.Minute)
 	v.SetDefault("websocket.readBuffer", 1024)
 	v.SetDefault("websocket.writeBuffer", 1024)
-	v.SetDefault("websocket.endpoint", "ws://localhost:8483")
+	v.SetDefault("websocket.endpoint", "ws://127.0.0.1:8483")
 	v.SetDefault("websocket.protocolVersion", protocol.CurrentVersion)
 
-	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
+	v.SetDefault("kafka.brokers", []string{"127.0.0.1:9092"})
 	v.SetDefault("kafka.topic", "bullet_topic")
 	v.SetDefault("kafka.balancer", "hash")
 
-	v.SetDefault("redis.addrs", []string{"localhost:8479", "localhost:8480", "localhost:8481"})
+	v.SetDefault("redis.addrs", []string{"127.0.0.1:8479", "127.0.0.1:8480", "127.0.0.1:8481"})
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
 
 	v.SetDefault("distributor.quic.enabled", true)
-	v.SetDefault("distributor.quic.addr", "localhost:8484")
+	v.SetDefault("distributor.quic.addr", "127.0.0.1:8484")
 	v.SetDefault("distributor.cdn.enabled", false)
 	v.SetDefault("distributor.cdn.endpoint", "cdn.example.com")
 
 	v.SetDefault("observability.prometheus.enabled", true)
 	v.SetDefault("observability.prometheus.path", "/metrics")
-	v.SetDefault("observability.prometheus.httpEndpoint", "localhost:9090")
+	v.SetDefault("observability.prometheus.httpEndpoint", "127.0.0.1:9090")
 	v.SetDefault("observability.jaeger.enabled", false)
-	v.SetDefault("observability.jaeger.endpoint", "localhost:6831")
-	v.SetDefault("observability.jaeger.httpEndpoint", "localhost:14268")
+	v.SetDefault("observability.jaeger.endpoint", "127.0.0.1:6831")
+	v.SetDefault("observability.jaeger.httpEndpoint", "127.0.0.1:14268")
 	v.SetDefault("observability.jaeger.sampler", "always")
 	v.SetDefault("observability.jaeger.sampleRatio", 1.0)
 
@@ -486,17 +486,17 @@ func InitTestConfigManager() {
 				IdleTimeout: 1 * time.Minute,
 			},
 			Kafka: Kafka{
-				Brokers: []string{"localhost:9092"},
+				Brokers: []string{"127.0.0.1:9092"},
 				Topic:   "bullet_test",
 			},
 			Redis: Redis{
-				Addrs:    []string{"localhost:8479", "localhost:8480", "localhost:8481"},
+				Addrs:    []string{"127.0.0.1:8479", "127.0.0.1:8480", "127.0.0.1:8481"},
 				Password: "",
 			},
 			Distributor: Distributor{
 				QUIC: QUIC{
 					Enabled: true,
-					Addr:    "localhost:8484",
+					Addr:    "127.0.0.1:8484",
 				},
 			},
 			Observability: Observability{
