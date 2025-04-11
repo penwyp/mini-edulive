@@ -76,7 +76,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryInterval := time.Duration(cfg.Client.SendInterval)
+		retryInterval := cfg.Client.SendInterval
 		maxRetries := cfg.Client.MaxRetries
 		for {
 			select {
