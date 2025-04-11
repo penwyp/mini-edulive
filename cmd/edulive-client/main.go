@@ -51,15 +51,12 @@ func main() {
 	}
 	defer wsClient.Close()
 
-	// 创建 QUIC 客户端（接收弹幕，仅在 send 模式下需要）
-	var quicClient *connection.QuicClient
-	if cfg.Client.Mode == "send" {
-		quicClient, err = connection.NewQuicClient(cfg)
-		if err != nil {
-			logger.Panic("Failed to create QUIC client", zap.Error(err))
-		}
-		defer quicClient.Close()
+	// 创建 QUIC 客户端（接收弹幕，适用于 create 和 send 模式）
+	quicClient, err := connection.NewQuicClient(cfg)
+	if err != nil {
+		logger.Panic("Failed to create QUIC client", zap.Error(err))
 	}
+	defer quicClient.Close()
 
 	// 启动心跳和接收线程
 	ctx, cancel := context.WithCancel(context.Background())
@@ -70,6 +67,13 @@ func main() {
 	go func() {
 		defer wg.Done()
 		wsClient.StartHeartbeat(ctx)
+	}()
+
+	// 启动 QUIC 接收（适用于所有模式）
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		quicClient.Receive(ctx)
 	}()
 
 	// 根据模式执行逻辑
@@ -87,16 +91,8 @@ func main() {
 					zap.Uint64("userID", cfg.Client.UserID))
 			}
 		}()
-	} else {
+	} else if cfg.Client.Mode == "send" {
 		// 发送弹幕模式
-		// 启动 QUIC 接收
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			quicClient.Receive(ctx)
-		}()
-
-		// 模拟发送弹幕
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -116,6 +112,8 @@ func main() {
 				}
 			}
 		}()
+	} else {
+		logger.Panic("Unsupported client mode", zap.String("mode", cfg.Client.Mode))
 	}
 
 	// 等待终止信号

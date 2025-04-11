@@ -25,9 +25,14 @@ type Dispatcher struct {
 	redisClient  *redis.ClusterClient
 	keyBuilder   *pkgcache.RedisKeyBuilder
 	quicListener *quic.Listener
-	clients      map[uint64]quic.Stream
+	clients      map[uint64]*ClientInfo // 存储 userID 到 ClientInfo 的映射
 	mutex        sync.RWMutex
 	wg           sync.WaitGroup
+}
+
+type ClientInfo struct {
+	Stream quic.Stream
+	LiveID uint64
 }
 
 func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
@@ -48,7 +53,7 @@ func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
 		redisClient:  redisClient,
 		keyBuilder:   pkgcache.NewRedisKeyBuilder(),
 		quicListener: quicListener,
-		clients:      make(map[uint64]quic.Stream),
+		clients:      make(map[uint64]*ClientInfo),
 	}, nil
 }
 
@@ -87,24 +92,33 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 		return
 	}
 
+	// 读取初始化消息以获取 userID 和 liveID
 	data, err := readStream(stream)
 	if err != nil {
 		logger.Error("Failed to read initial message", zap.Error(err))
+		stream.Close()
 		return
 	}
 
 	msg, err := protocol.Decode(data)
 	if err != nil {
 		logger.Error("Failed to decode initial message", zap.Error(err))
+		stream.Close()
 		return
 	}
 
 	d.mutex.Lock()
-	d.clients[msg.UserID] = stream
+	d.clients[msg.UserID] = &ClientInfo{
+		Stream: stream,
+		LiveID: msg.LiveID,
+	}
 	d.mutex.Unlock()
 
-	logger.Info("New client connected", zap.Uint64("userID", msg.UserID))
+	logger.Info("New client connected",
+		zap.Uint64("userID", msg.UserID),
+		zap.Uint64("liveID", msg.LiveID))
 
+	// 保持流活跃，直到连接关闭
 	for {
 		_, err := readStream(stream)
 		if err != nil {
@@ -141,17 +155,34 @@ func (d *Dispatcher) pushBullets() {
 		return
 	}
 
-	compressedData, err := d.compressBullets(bullets)
-	if err != nil {
-		logger.Error("Failed to compress bullets", zap.Error(err))
-		return
+	// 按 liveID 分组弹幕
+	bulletsByLiveID := make(map[uint64][]*protocol.BulletMessage)
+	for _, bullet := range bullets {
+		bulletsByLiveID[bullet.LiveID] = append(bulletsByLiveID[bullet.LiveID], bullet)
 	}
 
 	d.mutex.RLock()
-	for userID, stream := range d.clients {
-		err := d.sendToClient(stream, compressedData)
+	for userID, clientInfo := range d.clients {
+		// 获取该客户端订阅的直播间弹幕
+		clientBullets, ok := bulletsByLiveID[clientInfo.LiveID]
+		if !ok || len(clientBullets) == 0 {
+			continue
+		}
+
+		// 压缩并推送
+		compressedData, err := d.compressBullets(clientBullets)
 		if err != nil {
-			logger.Warn("Failed to send to client", zap.Uint64("userID", userID), zap.Error(err))
+			logger.Error("Failed to compress bullets for client",
+				zap.Uint64("userID", userID),
+				zap.Error(err))
+			continue
+		}
+
+		err = d.sendToClient(clientInfo.Stream, compressedData)
+		if err != nil {
+			logger.Warn("Failed to send to client",
+				zap.Uint64("userID", userID),
+				zap.Error(err))
 			d.removeClient(userID)
 		}
 	}
@@ -163,7 +194,6 @@ func (d *Dispatcher) pushBullets() {
 }
 
 func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMessage, error) {
-	// 获取活跃直播间列表
 	activeRooms, err := d.redisClient.SMembers(ctx, d.keyBuilder.ActiveLiveRoomsKey()).Result()
 	if err != nil {
 		return nil, err
@@ -181,7 +211,6 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 			continue
 		}
 
-		// 为每个直播间获取 Top 10000 弹幕
 		rankingKey := d.keyBuilder.LiveRankingKey(liveID)
 		users, err := d.redisClient.ZRevRangeWithScores(ctx, rankingKey, 0, 9999).Result()
 		if err != nil {
@@ -211,7 +240,6 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 				Content:    content,
 			})
 
-			// 限制总弹幕数量
 			if len(allBullets) >= 10000 {
 				break
 			}
@@ -251,8 +279,8 @@ func (d *Dispatcher) sendToClient(stream quic.Stream, data []byte) error {
 
 func (d *Dispatcher) removeClient(userID uint64) {
 	d.mutex.Lock()
-	if stream, ok := d.clients[userID]; ok {
-		stream.Close()
+	if clientInfo, ok := d.clients[userID]; ok {
+		clientInfo.Stream.Close()
 		delete(d.clients, userID)
 	}
 	d.mutex.Unlock()
