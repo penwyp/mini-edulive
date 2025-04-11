@@ -133,7 +133,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 
 func (d *Dispatcher) pushBulletLoop() {
 	defer d.wg.Done()
-	ticker := time.NewTicker(10 * time.Millisecond)
+	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -199,7 +199,8 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 		return nil, err
 	}
 	if len(activeRooms) == 0 {
-		logger.Debug("No active live rooms found")
+		logger.Debug("No active live rooms found, sleeping for 10 second")
+		time.Sleep(10 * time.Second)
 		return nil, nil
 	}
 

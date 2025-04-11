@@ -17,11 +17,9 @@ import (
 )
 
 func main() {
-	// 初始化配置
 	configMgr := config.InitConfig("config/config_client.yaml")
 	cfg := configMgr.GetConfig()
 
-	// 初始化日志
 	logger.Init(config.Logger{
 		Level:      cfg.Logger.Level,
 		FilePath:   cfg.Logger.FilePath,
@@ -37,62 +35,64 @@ func main() {
 		zap.Uint64("userID", cfg.Client.UserID),
 		zap.String("mode", cfg.Client.Mode))
 
-	// 监听配置变更
 	go func() {
 		for newCfg := range configMgr.ConfigChan {
 			logger.Info("Configuration updated", zap.Any("new_config", newCfg))
 		}
 	}()
 
-	// 创建 WebSocket 客户端
 	wsClient, err := connection.NewClient(cfg)
 	if err != nil {
 		logger.Panic("Failed to create WebSocket client", zap.Error(err))
 	}
 	defer wsClient.Close()
 
-	// 创建 QUIC 客户端
 	quicClient, err := connection.NewQuicClient(cfg)
 	if err != nil {
 		logger.Panic("Failed to create QUIC client", zap.Error(err))
 	}
 	defer quicClient.Close()
 
-	// 启动心跳和接收线程
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
-	// 启动 WebSocket 心跳
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		wsClient.StartHeartbeat(ctx)
 	}()
 
-	// 启动 QUIC 接收
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		quicClient.Receive(ctx)
 	}()
 
-	// 根据模式执行逻辑
 	if cfg.Client.Mode == "create" {
-		// 创建直播间模式
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			err := wsClient.CreateRoom(cfg.Client.LiveID, cfg.Client.UserID)
 			if err != nil {
 				logger.Error("Failed to create room", zap.Error(err))
-				os.Exit(1) // 如果创建失败，退出程序
+				os.Exit(1)
 			}
 			logger.Info("Room created successfully",
 				zap.Uint64("liveID", cfg.Client.LiveID),
 				zap.Uint64("userID", cfg.Client.UserID))
 		}()
 	} else if cfg.Client.Mode == "send" {
-		// 发送弹幕模式
+		// 检查房间是否存在
+		logger.Info("Checking room existence...", zap.Uint64("liveID", cfg.Client.LiveID))
+		err := wsClient.CheckRoom(cfg.Client.LiveID, cfg.Client.UserID)
+		if err != nil {
+			logger.Error("Room check failed", zap.Error(err))
+			cancel()
+			wg.Wait()
+			logger.Sync()
+			os.Exit(1)
+		}
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -116,13 +116,11 @@ func main() {
 		logger.Panic("Unsupported client mode", zap.String("mode", cfg.Client.Mode))
 	}
 
-	// 等待终止信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 	logger.Info("Shutdown signal received, stopping client...")
 
-	// 清理
 	cancel()
 	wg.Wait()
 	logger.Sync()

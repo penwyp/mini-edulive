@@ -27,7 +27,6 @@ type Server struct {
 	keyBuilder  *pkgcache.RedisKeyBuilder
 }
 
-// NewServer 创建 WebSocket 服务端
 func NewServer(cfg *config.Config) *Server {
 	redisClient, err := pkgcache.NewRedisClusterClient(&cfg.Redis)
 	if err != nil {
@@ -42,7 +41,6 @@ func NewServer(cfg *config.Config) *Server {
 	}
 }
 
-// Start 启动 WebSocket 服务
 func (s *Server) Start() {
 	http.HandleFunc("/bullet", s.handleWebSocket)
 	logger.Info("WebSocket gateway starting", zap.String("port", s.config.App.Port))
@@ -51,7 +49,6 @@ func (s *Server) Start() {
 	}
 }
 
-// handleWebSocket 处理 WebSocket 连接
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		CompressionMode: websocket.CompressionDisabled,
@@ -61,13 +58,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 添加连接到池中
 	userID := uint64(0)
-	liveID := uint64(0) // 用于记录创建的直播间 ID
+	liveID := uint64(0)
 	s.pool.Add(userID, conn)
 
 	defer func() {
-		// 客户端断开时，如果是创建者，移除直播间
 		if liveID != 0 {
 			s.unregisterLiveRoom(r.Context(), liveID)
 		}
@@ -82,20 +77,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 解析二进制消息
 		msg, err := protocol.Decode(data)
 		if err != nil {
 			logger.Warn("Failed to decode message", zap.Error(err))
 			continue
 		}
 
-		// 更新用户ID
 		if userID == 0 {
 			userID = msg.UserID
 			s.pool.UpdateUserID(userID, conn)
 		}
 
-		// 处理消息
 		switch msg.Type {
 		case protocol.TypeBullet:
 			logger.Info("Received bullet message",
@@ -120,9 +112,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.Uint64("userID", msg.UserID),
 				zap.Uint64("liveID", msg.LiveID))
 
-			// 检查直播间是否已存在
 			if s.isLiveRoomExists(r.Context(), msg.LiveID) {
-				// 返回错误消息并关闭连接
 				resp := &protocol.BulletMessage{
 					Magic:      protocol.MagicNumber,
 					Version:    protocol.CurrentVersion,
@@ -143,15 +133,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// 注册直播间
 			err = s.registerLiveRoom(r.Context(), msg.LiveID)
 			if err != nil {
 				logger.Error("Failed to register live room", zap.Error(err))
 				continue
 			}
-			liveID = msg.LiveID // 记录创建的 liveID
+			liveID = msg.LiveID
 
-			// 回复成功消息
 			resp := protocol.NewCreateRoomMessage(msg.LiveID, msg.UserID)
 			respData, err := resp.Encode()
 			if err != nil {
@@ -166,29 +154,61 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			logger.Info("Create room response sent",
 				zap.Uint64("userID", msg.UserID),
 				zap.Uint64("liveID", msg.LiveID))
+
+		case protocol.TypeCheckRoom:
+			logger.Info("Received check room request",
+				zap.Uint64("userID", msg.UserID),
+				zap.Uint64("liveID", msg.LiveID))
+
+			exists := s.isLiveRoomExists(r.Context(), msg.LiveID)
+			content := "exists"
+			if !exists {
+				content = "not exists"
+			}
+			resp := &protocol.BulletMessage{
+				Magic:      protocol.MagicNumber,
+				Version:    protocol.CurrentVersion,
+				Type:       protocol.TypeCheckRoom,
+				Timestamp:  time.Now().UnixMilli(),
+				UserID:     msg.UserID,
+				LiveID:     msg.LiveID,
+				ContentLen: uint16(len(content)),
+				Content:    content,
+			}
+			respData, err := resp.Encode()
+			if err != nil {
+				logger.Error("Failed to encode check room response", zap.Error(err))
+				continue
+			}
+			err = conn.Write(r.Context(), websocket.MessageBinary, respData)
+			if err != nil {
+				logger.Error("Failed to send check room response", zap.Error(err))
+				continue
+			}
+			logger.Info("Check room response sent",
+				zap.Uint64("userID", msg.UserID),
+				zap.Uint64("liveID", msg.LiveID),
+				zap.String("result", content))
 		}
 	}
 }
 
-// isLiveRoomExists 检查直播间是否已存在
 func (s *Server) isLiveRoomExists(ctx context.Context, liveID uint64) bool {
 	key := s.keyBuilder.ActiveLiveRoomsKey()
 	exists, err := s.redisClient.SIsMember(ctx, key, liveID).Result()
 	if err != nil {
 		logger.Error("Failed to check live room existence", zap.Uint64("liveID", liveID), zap.Error(err))
-		return true // 假设存在以避免重复创建
+		return true // 默认假设存在以避免误操作
 	}
 	return exists
 }
 
-// registerLiveRoom 注册活跃直播间到 Redis
 func (s *Server) registerLiveRoom(ctx context.Context, liveID uint64) error {
 	key := s.keyBuilder.ActiveLiveRoomsKey()
 	err := s.redisClient.SAdd(ctx, key, liveID).Err()
 	if err != nil {
 		return err
 	}
-	// 设置过期时间（24小时）
 	err = s.redisClient.Expire(ctx, key, 24*time.Hour).Err()
 	if err != nil {
 		return err
@@ -199,7 +219,6 @@ func (s *Server) registerLiveRoom(ctx context.Context, liveID uint64) error {
 	return nil
 }
 
-// unregisterLiveRoom 从 Redis 中移除活跃直播间
 func (s *Server) unregisterLiveRoom(ctx context.Context, liveID uint64) {
 	key := s.keyBuilder.ActiveLiveRoomsKey()
 	err := s.redisClient.SRem(ctx, key, liveID).Err()
@@ -214,7 +233,6 @@ func (s *Server) unregisterLiveRoom(ctx context.Context, liveID uint64) {
 		zap.String("redis_key", key))
 }
 
-// sendToKafka 将消息发送到 Kafka
 func (s *Server) sendToKafka(ctx context.Context, msg *protocol.BulletMessage) error {
 	data, err := msg.Encode()
 	if err != nil {

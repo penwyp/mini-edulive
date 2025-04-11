@@ -155,7 +155,6 @@ func (f *SensitiveFilter) Contains(content string) bool {
 }
 
 // CreateRoom 发送创建直播间请求
-// CreateRoom 发送创建直播间请求
 func (c *Client) CreateRoom(liveID, userID uint64) error {
 	msg := protocol.NewCreateRoomMessage(liveID, userID)
 	data, err := msg.Encode()
@@ -188,5 +187,38 @@ func (c *Client) CreateRoom(liveID, userID uint64) error {
 	logger.Info("Received create room response",
 		zap.Uint64("liveID", respMsg.LiveID),
 		zap.Uint64("userID", respMsg.UserID))
+	return nil
+}
+
+// CheckRoom 检查直播间是否存在
+func (c *Client) CheckRoom(liveID, userID uint64) error {
+	msg := protocol.NewCheckRoomMessage(liveID, userID)
+	data, err := msg.Encode()
+	if err != nil {
+		return err
+	}
+	err = c.conn.Write(context.Background(), websocket.MessageBinary, data)
+	if err != nil {
+		return err
+	}
+
+	_, respData, err := c.conn.Read(context.Background())
+	if err != nil {
+		return err
+	}
+	respMsg, err := protocol.Decode(respData)
+	if err != nil {
+		return err
+	}
+	if respMsg.Type != protocol.TypeCheckRoom {
+		return fmt.Errorf("unexpected response type: %d", respMsg.Type)
+	}
+	if respMsg.Content == "not exists" {
+		logger.Error("Live room does not exist",
+			zap.Uint64("liveID", liveID))
+		return fmt.Errorf("live room %d does not exist", liveID)
+	}
+	logger.Info("Live room exists",
+		zap.Uint64("liveID", liveID))
 	return nil
 }

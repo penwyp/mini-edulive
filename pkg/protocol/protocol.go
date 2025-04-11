@@ -14,6 +14,7 @@ const (
 	TypeBullet     = 0x01 // 弹幕消息
 	TypeHeartbeat  = 0x02 // 心跳消息
 	TypeCreateRoom = 0x03 // 创建直播间消息
+	TypeCheckRoom  = 0x04 // 检查房间存在性消息
 )
 
 // BulletMessage 定义二进制协议结构体
@@ -159,6 +160,20 @@ func NewCreateRoomMessage(liveID, userID uint64) *BulletMessage {
 		Magic:      MagicNumber,
 		Version:    CurrentVersion,
 		Type:       TypeCreateRoom,
+		Timestamp:  time.Now().UnixMilli(),
+		UserID:     userID,
+		LiveID:     liveID,
+		ContentLen: 0,
+		Content:    "",
+	}
+}
+
+// NewCheckRoomMessage 创建检查房间消息
+func NewCheckRoomMessage(liveID, userID uint64) *BulletMessage {
+	return &BulletMessage{
+		Magic:      MagicNumber,
+		Version:    CurrentVersion,
+		Type:       TypeCheckRoom,
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     userID,
 		LiveID:     liveID,
