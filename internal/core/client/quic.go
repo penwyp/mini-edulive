@@ -1,5 +1,5 @@
 // client/connection/quic.go
-package connection
+package client
 
 import (
 	"bytes"

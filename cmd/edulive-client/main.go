@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/penwyp/mini-edulive/internal/core/client"
 	"os"
 	"os/signal"
 	"sync"
@@ -13,7 +14,6 @@ import (
 	"github.com/penwyp/mini-edulive/internal/core/observability"
 
 	"github.com/penwyp/mini-edulive/config"
-	"github.com/penwyp/mini-edulive/internal/core/connection"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -63,13 +63,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// 初始化 WebSocket 和 QUIC 客户端
-	wsClient, err := connection.NewClient(ctx, cfg)
+	wsClient, err := client.NewClient(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create WebSocket client", zap.Error(err))
 	}
 	defer wsClient.Close(ctx)
 
-	quicClient, err := connection.NewQuicClient(ctx, cfg)
+	quicClient, err := client.NewQuicClient(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create QUIC client", zap.Error(err))
 	}
@@ -194,14 +194,14 @@ func main() {
 	logger.Info("Client stopped gracefully")
 }
 
-func attemptReconnect(ctx context.Context, wsClient *connection.Client, cfg *config.Config, maxRetries int, retryInterval time.Duration) bool {
+func attemptReconnect(ctx context.Context, wsClient *client.Client, cfg *config.Config, maxRetries int, retryInterval time.Duration) bool {
 	for i := 0; i < maxRetries; i++ {
 		select {
 		case <-ctx.Done():
 			return false
 		default:
 			logger.Info("Attempting WebSocket reconnect", zap.Int("attempt", i+1))
-			newWsClient, err := connection.NewClient(ctx, cfg)
+			newWsClient, err := client.NewClient(ctx, cfg)
 			if err == nil {
 				wsClient.Close(ctx)
 				*wsClient = *newWsClient
@@ -215,14 +215,14 @@ func attemptReconnect(ctx context.Context, wsClient *connection.Client, cfg *con
 	return false
 }
 
-func attemptQuicReconnect(ctx context.Context, quicClient *connection.QuicClient, cfg *config.Config, maxRetries int, retryInterval time.Duration) bool {
+func attemptQuicReconnect(ctx context.Context, quicClient *client.QuicClient, cfg *config.Config, maxRetries int, retryInterval time.Duration) bool {
 	for i := 0; i < maxRetries; i++ {
 		select {
 		case <-ctx.Done():
 			return false
 		default:
 			logger.Info("Attempting QUIC reconnect", zap.Int("attempt", i+1))
-			newQuicClient, err := connection.NewQuicClient(ctx, cfg)
+			newQuicClient, err := client.NewQuicClient(ctx, cfg)
 			if err == nil {
 				quicClient.Close(ctx)
 				*quicClient = *newQuicClient

@@ -1,5 +1,5 @@
 // client/connection/websocket.go
-package connection
+package client
 
 import (
 	"context"
