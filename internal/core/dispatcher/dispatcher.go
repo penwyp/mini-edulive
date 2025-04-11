@@ -4,6 +4,7 @@ package dispatcher
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"github.com/penwyp/mini-edulive/internal/core/websocket"
 	"github.com/penwyp/mini-edulive/pkg/util"
 	"strconv"
@@ -174,17 +175,17 @@ func (d *Dispatcher) pushBullets() {
 			continue
 		}
 
-		// 压缩并推送
-		compressedData, err := d.compressBullets(clientBullets)
+		// 编码弹幕消息（无压缩）
+		data, err := d.encodeBullets(clientBullets)
 		if err != nil {
-			logger.Error("Failed to compress bullets for client",
+			logger.Error("Failed to encode bullets for client",
 				zap.Uint64("userID", userID),
 				zap.String("userName", clientInfo.UserName),
 				zap.Error(err))
 			continue
 		}
 
-		err = d.sendToClient(clientInfo.Stream, compressedData)
+		err = d.sendToClient(clientInfo.Stream, data)
 		if err != nil {
 			logger.Warn("Failed to send to client",
 				zap.Uint64("userID", userID),
@@ -198,6 +199,31 @@ func (d *Dispatcher) pushBullets() {
 	logger.Debug("Bullets pushed",
 		zap.Int("bullet_count", len(bullets)),
 		zap.Duration("total_time", time.Since(startTime)))
+}
+
+// encodeBullets 编码弹幕消息（替代 compressBullets）
+func (d *Dispatcher) encodeBullets(bullets []*protocol.BulletMessage) ([]byte, error) {
+	var buf bytes.Buffer
+	for _, bullet := range bullets {
+		data, err := bullet.Encode()
+		if err != nil {
+			logger.Warn("Failed to encode bullet", zap.Error(err))
+			continue
+		}
+		// 写入消息长度（4 字节）+ 消息内容
+		if err := binary.Write(&buf, binary.BigEndian, uint32(len(data))); err != nil {
+			return nil, err
+		}
+		buf.Write(data)
+	}
+	logger.Debug("Encoded bullets", zap.Int("bytes", buf.Len()))
+	return buf.Bytes(), nil
+}
+
+func (d *Dispatcher) sendToClient(stream quic.Stream, data []byte) error {
+	n, err := stream.Write(data)
+	logger.Debug("Sent to client", zap.Int("bytes", n), zap.Error(err))
+	return err
 }
 
 func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMessage, error) {
@@ -242,6 +268,7 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 				Timestamp:  time.Now().UnixMilli(),
 				UserID:     parseUserID(userID),
 				LiveID:     liveID,
+				Username:   "",
 				ContentLen: uint16(len(content)),
 				Content:    content,
 			})
@@ -276,11 +303,6 @@ func (d *Dispatcher) compressBullets(bullets []*protocol.BulletMessage) ([]byte,
 	enc.Close()
 
 	return buf.Bytes(), nil
-}
-
-func (d *Dispatcher) sendToClient(stream quic.Stream, data []byte) error {
-	_, err := stream.Write(data)
-	return err
 }
 
 func (d *Dispatcher) removeClient(userID uint64) {

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -16,11 +17,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// SerializedBullet 表示序列化后的弹幕内容
+type SerializedBullet struct {
+	Timestamp int64  `json:"timestamp"`
+	UserID    uint64 `json:"user_id"`
+	LiveID    uint64 `json:"live_id"`
+	Username  string `json:"username"`
+	Content   string `json:"content"`
+}
+
 type Worker struct {
 	config      *config.Config
 	kafkaReader *kafka.Reader
 	redisClient *redis.ClusterClient
-	keyBuilder  *pkgcache.RedisKeyBuilder // Add key builder
+	keyBuilder  *pkgcache.RedisKeyBuilder
 	wg          sync.WaitGroup
 }
 
@@ -152,25 +162,47 @@ func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) 
 		zap.Duration("execution_time", time.Since(startTime)))
 	return result == 1
 }
-
 func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) {
 	startTime := time.Now()
 	pipe := w.redisClient.Pipeline()
 
+	// 创建 SerializedBullet 实例
+	serializedBullet := SerializedBullet{
+		Timestamp: msg.Timestamp,
+		UserID:    msg.UserID,
+		LiveID:    msg.LiveID,
+		Username:  msg.Username,
+		Content:   msg.Content,
+	}
+
+	// 序列化为 JSON
+	serializedData, err := json.Marshal(serializedBullet)
+	if err != nil {
+		logger.Error("Failed to marshal bullet to JSON",
+			zap.Uint64("liveID", msg.LiveID),
+			zap.Uint64("userID", msg.UserID),
+			zap.String("userName", msg.Username),
+			zap.Error(err))
+		return
+	}
+
+	// 存储到 LiveBulletKey
 	bulletKey := w.keyBuilder.LiveBulletKey(msg.LiveID)
-	pipe.LPush(ctx, bulletKey, msg.Content)
-	pipe.LTrim(ctx, bulletKey, 0, 999)
+	pipe.LPush(ctx, bulletKey, string(serializedData))
+	pipe.LTrim(ctx, bulletKey, 0, 999) // 保留最新 1000 条
 	logger.Debug("Prepared bullet storage",
 		zap.String("bullet_key", bulletKey),
-		zap.String("content", msg.Content))
+		zap.String("serialized_data", string(serializedData)))
 
+	// 更新排行榜
 	rankingKey := w.keyBuilder.LiveRankingKey(msg.LiveID)
 	pipe.ZIncrBy(ctx, rankingKey, 1, w.keyBuilder.UserIDStr(msg.UserID))
 	logger.Debug("Prepared ranking update",
 		zap.String("ranking_key", rankingKey),
 		zap.String("userID_str", w.keyBuilder.UserIDStr(msg.UserID)))
 
-	_, err := pipe.Exec(ctx)
+	// 执行管道操作
+	_, err = pipe.Exec(ctx)
 	if err != nil {
 		logger.Error("Failed to store message in Redis",
 			zap.Uint64("liveID", msg.LiveID),
@@ -188,7 +220,8 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 		zap.Uint64("liveID", msg.LiveID),
 		zap.Uint64("userID", msg.UserID),
 		zap.String("userName", msg.Username),
-		zap.String("content", msg.Content))
+		zap.String("content", msg.Content),
+		zap.String("serialized_data", string(serializedData)))
 }
 
 func (w *Worker) Close() {

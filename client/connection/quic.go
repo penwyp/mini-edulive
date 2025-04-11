@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
-	"github.com/klauspost/compress/zstd"
 	"github.com/penwyp/mini-edulive/pkg/util"
-	"github.com/tinylib/msgp/msgp"
 	"io"
 	"sync"
 	"time"
@@ -148,54 +147,34 @@ func (c *QuicClient) Receive(ctx context.Context) error {
 				continue
 			}
 
-			// 解压 zstd 数据
-			reader, err := zstd.NewReader(bytes.NewReader(data))
-			if err != nil {
-				logger.Warn("Failed to create zstd reader", zap.Error(err))
-				return fmt.Errorf("create zstd reader: %w", err)
-			}
-			defer reader.Close()
-
-			// 读取解压后的数据
-			var decompressedData bytes.Buffer
-			n, err := io.Copy(&decompressedData, reader)
-			if err != nil {
-				logger.Warn("Failed to decompress zstd data", zap.Error(err))
-				return fmt.Errorf("decompress zstd: %w", err)
-			}
-			logger.Debug("Decompressed data", zap.Int64("bytes", n))
-
-			// 检查解压后的数据是否为空
-			if n == 0 {
-				logger.Debug("Decompressed data is empty, skipping")
-				continue
-			}
-
-			// 使用 msgp 反序列化弹幕消息列表
-			var bullets []*protocol.BulletMessage
-			dec := msgp.NewReader(&decompressedData)
+			// 解析多条弹幕消息
+			reader := bytes.NewReader(data)
 			for {
-				var bullet protocol.BulletMessage
-				err := bullet.DecodeMsg(dec)
-				if err == io.EOF {
-					logger.Debug("Reached end of msgp data")
-					break // 所有消息解析完成
+				// 读取消息长度（4 字节）
+				var msgLen uint32
+				if err := binary.Read(reader, binary.BigEndian, &msgLen); err != nil {
+					if err == io.EOF {
+						logger.Debug("Reached end of data")
+						break
+					}
+					logger.Warn("Failed to read message length", zap.Error(err))
+					return fmt.Errorf("read message length: %w", err)
 				}
+
+				// 读取消息内容
+				msgData := make([]byte, msgLen)
+				if _, err := io.ReadFull(reader, msgData); err != nil {
+					logger.Warn("Failed to read message data", zap.Error(err))
+					return fmt.Errorf("read message data: %w", err)
+				}
+
+				// 解码弹幕消息
+				bullet, err := protocol.Decode(msgData)
 				if err != nil {
-					logger.Warn("Skipping invalid msgp message", zap.Error(err))
-					continue // 跳过无效消息，而不是返回错误
+					logger.Warn("Failed to decode bullet message", zap.Error(err))
+					continue
 				}
-				bullets = append(bullets, &bullet)
-			}
 
-			// 检查是否解析到有效消息
-			if len(bullets) == 0 {
-				logger.Debug("No valid bullets parsed, skipping")
-				continue
-			}
-
-			// 处理收到的弹幕消息
-			for _, bullet := range bullets {
 				logger.Info("Received bullet",
 					zap.Uint64("liveID", bullet.LiveID),
 					zap.Uint64("userID", bullet.UserID),
@@ -212,16 +191,32 @@ func (c *QuicClient) readStream() ([]byte, error) {
 	var buf bytes.Buffer
 	chunk := make([]byte, 1024)
 	for {
-		n, err := c.stream.Read(chunk)
-		if err != nil && err != io.EOF {
-			return nil, err
+		// 设置读取超时
+		err := c.stream.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if err != nil {
+			return nil, fmt.Errorf("set read deadline: %w", err)
 		}
-		buf.Write(chunk[:n])
-		if err == io.EOF || n < len(chunk) {
-			break
+
+		n, err := c.stream.Read(chunk)
+		if n > 0 {
+			buf.Write(chunk[:n])
+		}
+		if err != nil {
+			if err == io.EOF {
+				logger.Debug("QUIC stream EOF", zap.Int("total_bytes", buf.Len()))
+				return buf.Bytes(), nil
+			}
+			if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+				logger.Debug("QUIC stream read timeout", zap.Int("total_bytes", buf.Len()))
+				return buf.Bytes(), nil
+			}
+			return nil, fmt.Errorf("read chunk: %w", err)
+		}
+		if n < len(chunk) {
+			logger.Debug("QUIC stream read complete", zap.Int("total_bytes", buf.Len()))
+			return buf.Bytes(), nil
 		}
 	}
-	return buf.Bytes(), nil
 }
 
 // Close 关闭 QUIC 连接
