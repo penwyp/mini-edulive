@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/penwyp/mini-edulive/client/connection"
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/connection"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"go.uber.org/zap"
 )
