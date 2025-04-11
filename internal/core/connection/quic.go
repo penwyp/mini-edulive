@@ -1,3 +1,4 @@
+// client/connection/quic.go
 package connection
 
 import (
@@ -6,16 +7,18 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
-	"github.com/fatih/color"
-	"github.com/penwyp/mini-edulive/pkg/util"
 	"io"
 	"sync"
 	"time"
 
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/observability" // 引入可观测性包
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/penwyp/mini-edulive/pkg/util"
 	"github.com/quic-go/quic-go"
+	"go.opentelemetry.io/otel/attribute" // 用于添加 Span 属性
+	"go.opentelemetry.io/otel/trace"     // 用于 Span 操作
 	"go.uber.org/zap"
 )
 
@@ -34,28 +37,44 @@ type QuicClient struct {
 
 // NewQuicClient 创建新的 QUIC 客户端
 func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
+	// 创建根 Span 追踪 QUIC 客户端初始化
+	ctx, span := observability.StartSpan(context.Background(), "quic.NewQuicClient",
+		trace.WithAttributes(
+			attribute.String("addr", cfg.Distributor.QUIC.Addr),
+			attribute.Int64("user_id", int64(cfg.Client.UserID)),
+			attribute.Int64("live_id", int64(cfg.Client.LiveID)),
+		))
+	defer span.End()
+
 	// 加载 TLS 证书
+	startTime := time.Now()
 	tlsConfig := util.GenerateTLSConfig(cfg.Distributor.QUIC.CertFile, cfg.Distributor.QUIC.KeyFile)
+	observability.RecordLatency(ctx, "tls.GenerateTLSConfig", time.Since(startTime))
 
 	// 建立 QUIC 连接
-	conn, err := quic.DialAddr(context.Background(), cfg.Distributor.QUIC.Addr, tlsConfig, &quic.Config{
+	startTime = time.Now()
+	conn, err := quic.DialAddr(ctx, cfg.Distributor.QUIC.Addr, tlsConfig, &quic.Config{
 		KeepAlivePeriod: 30 * time.Second, // 保持连接活跃
 	})
 	if err != nil {
 		logger.Error("Failed to dial QUIC", zap.Error(err),
 			zap.String("certFile", cfg.Distributor.QUIC.CertFile),
-			zap.String("keyFile", cfg.Distributor.QUIC.KeyFile),
-		)
+			zap.String("keyFile", cfg.Distributor.QUIC.KeyFile))
+		observability.RecordError(span, err, "quic.NewQuicClient")
 		return nil, fmt.Errorf("quic dial failed: %w", err)
 	}
+	observability.RecordLatency(ctx, "quic.DialAddr", time.Since(startTime))
 
 	// 打开数据流
-	stream, err := conn.OpenStreamSync(context.Background())
+	startTime = time.Now()
+	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
 		conn.CloseWithError(0, "failed to open stream")
 		logger.Error("Failed to open QUIC stream", zap.Error(err))
+		observability.RecordError(span, err, "quic.NewQuicClient")
 		return nil, fmt.Errorf("open stream failed: %w", err)
 	}
+	observability.RecordLatency(ctx, "quic.OpenStreamSync", time.Since(startTime))
 
 	client := &QuicClient{
 		config:    cfg,
@@ -68,11 +87,12 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 		tlsConfig: tlsConfig,
 	}
 
-	// 发送初始化消息（携带 userID 和 liveID）
+	// 发送初始化消息
 	err = client.sendInitMessage()
 	if err != nil {
 		client.Close()
 		logger.Error("Failed to send init message", zap.Error(err))
+		observability.RecordError(span, err, "quic.NewQuicClient")
 		return nil, fmt.Errorf("send init message failed: %w", err)
 	}
 
@@ -81,21 +101,31 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 		zap.Uint64("userID", client.userID),
 		zap.String("userName", client.userName),
 		zap.Uint64("liveID", client.liveID))
-
 	return client, nil
 }
 
 // sendInitMessage 发送初始化消息
 func (c *QuicClient) sendInitMessage() error {
+	// 创建 Span 追踪初始化消息发送
+	ctx, span := observability.StartSpan(context.Background(), "quic.sendInitMessage",
+		trace.WithAttributes(
+			attribute.Int64("user_id", int64(c.userID)),
+			attribute.Int64("live_id", int64(c.liveID)),
+			attribute.String("user_name", c.userName),
+		))
+	defer span.End()
+
 	c.mutex.RLock()
 	if c.isClosed {
 		c.mutex.RUnlock()
-		return fmt.Errorf("connection is closed")
+		err := fmt.Errorf("connection is closed")
+		observability.RecordError(span, err, "quic.sendInitMessage")
+		return err
 	}
 	stream := c.stream
 	c.mutex.RUnlock()
 
-	// 创建初始化消息（复用 BulletMessage，类型为 TypeBullet）
+	// 创建初始化消息
 	msg := &protocol.BulletMessage{
 		Magic:     protocol.MagicNumber,
 		Version:   protocol.CurrentVersion,
@@ -107,99 +137,129 @@ func (c *QuicClient) sendInitMessage() error {
 		Content:   "",
 	}
 
+	startTime := time.Now()
 	data, err := msg.Encode(c.config.Performance.BulletCompression)
 	if err != nil {
+		observability.RecordError(span, err, "quic.sendInitMessage")
 		return fmt.Errorf("encode init message failed: %w", err)
 	}
+	observability.RecordLatency(ctx, "protocol.Encode", time.Since(startTime))
 
+	startTime = time.Now()
 	_, err = stream.Write(data)
 	if err != nil {
+		observability.RecordError(span, err, "quic.sendInitMessage")
 		return fmt.Errorf("write init message failed: %w", err)
 	}
+	observability.RecordLatency(ctx, "quic.Write", time.Since(startTime))
 
 	logger.Debug("QUIC init message sent",
 		zap.Uint64("liveID", c.liveID),
 		zap.Uint64("userID", c.userID),
 		zap.String("userName", c.userName))
-
 	return nil
 }
 
 // Receive 处理接收 QUIC 消息
 func (c *QuicClient) Receive(ctx context.Context) error {
+	// 创建根 Span 追踪接收过程
+	ctx, span := observability.StartSpan(ctx, "quic.Receive",
+		trace.WithAttributes(
+			attribute.Int64("user_id", int64(c.userID)),
+			attribute.Int64("live_id", int64(c.liveID)),
+		))
+	defer span.End()
+
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("Context canceled, stopping QUIC receive")
+			span.AddEvent("context_canceled")
 			return nil
 		default:
-			// 读取 QUIC 流数据
+			// 创建子 Span 追踪单次消息接收
+			msgCtx, msgSpan := observability.StartSpan(ctx, "quic.receiveMessage")
+			startTime := time.Now()
+
 			data, err := c.readStream()
 			if err != nil {
 				logger.Warn("Failed to read QUIC stream", zap.Error(err))
+				observability.RecordError(msgSpan, err, "quic.receiveMessage")
+				msgSpan.End()
 				return fmt.Errorf("read stream: %w", err)
 			}
+			observability.RecordLatency(msgCtx, "quic.readStream", time.Since(startTime))
 			logger.Debug("Read QUIC stream", zap.Int("bytes", len(data)))
 
-			// 检查数据是否为空
 			if len(data) == 0 {
 				logger.Debug("Received empty data, skipping")
+				msgSpan.AddEvent("empty_data")
+				msgSpan.End()
 				continue
 			}
 
-			// 解析多条弹幕消息
 			reader := bytes.NewReader(data)
 			for {
-				// 读取消息长度（4 字节）
 				var msgLen uint32
 				if err := binary.Read(reader, binary.BigEndian, &msgLen); err != nil {
 					if err == io.EOF {
 						logger.Debug("Reached end of data")
+						msgSpan.AddEvent("end_of_data")
 						break
 					}
 					logger.Warn("Failed to read message length", zap.Error(err))
+					observability.RecordError(msgSpan, err, "quic.receiveMessage")
+					msgSpan.End()
 					return fmt.Errorf("read message length: %w", err)
 				}
 
-				// 读取消息内容
 				msgData := make([]byte, msgLen)
 				if _, err := io.ReadFull(reader, msgData); err != nil {
 					logger.Warn("Failed to read message data", zap.Error(err))
+					observability.RecordError(msgSpan, err, "quic.receiveMessage")
+					msgSpan.End()
 					return fmt.Errorf("read message data: %w", err)
 				}
 
-				// 解码弹幕消息
 				bullet, err := protocol.Decode(msgData)
 				if err != nil {
 					logger.Warn("Failed to decode bullet message", zap.Error(err))
+					observability.RecordError(msgSpan, err, "quic.receiveMessage")
 					continue
 				}
 
+				msgSpan.SetAttributes(
+					attribute.Int64("bullet_user_id", int64(bullet.UserID)),
+					attribute.Int64("bullet_live_id", int64(bullet.LiveID)),
+					attribute.String("bullet_user_name", bullet.UserName),
+					attribute.String("bullet_content", bullet.Content),
+				)
+
 				if bullet.Type == protocol.TypeBullet {
-					// 根据颜色字段选择彩色输出
-					colorFn := getColorFunc(bullet.Color)
+					colorFn := util.GetColorFunc(bullet.Color)
 					colorFn("%s (%d): %s\n", bullet.UserName, bullet.UserID, bullet.Content)
 				}
-				//logger.Info("Received bullet",
-				//	zap.Uint64("liveID", bullet.LiveID),
-				//	zap.Uint64("userID", bullet.UserID),
-				//	zap.String("username", bullet.UserName),
-				//	zap.String("content", bullet.Content),
-				//	zap.Int64("timestamp", bullet.Timestamp))
-				bullet.Release() // 使用后归还
+				bullet.Release()
 			}
+			observability.RecordLatency(msgCtx, "quic.processMessages", time.Since(startTime))
+			msgSpan.End()
 		}
 	}
 }
 
 // readStream 从 QUIC 流中读取数据
 func (c *QuicClient) readStream() ([]byte, error) {
+	// 创建 Span 追踪流读取
+	ctx, span := observability.StartSpan(context.Background(), "quic.readStream")
+	defer span.End()
+
 	var buf bytes.Buffer
 	chunk := make([]byte, 1024)
 	for {
-		// 设置读取超时
+		startTime := time.Now()
 		err := c.stream.SetReadDeadline(time.Now().Add(5 * time.Second))
 		if err != nil {
+			observability.RecordError(span, err, "quic.readStream")
 			return nil, fmt.Errorf("set read deadline: %w", err)
 		}
 
@@ -207,19 +267,27 @@ func (c *QuicClient) readStream() ([]byte, error) {
 		if n > 0 {
 			buf.Write(chunk[:n])
 		}
+		span.SetAttributes(attribute.Int("bytes_read", buf.Len()))
 		if err != nil {
 			if err == io.EOF {
 				logger.Debug("QUIC stream EOF", zap.Int("total_bytes", buf.Len()))
+				span.AddEvent("stream_eof")
+				observability.RecordLatency(ctx, "quic.Read", time.Since(startTime))
 				return buf.Bytes(), nil
 			}
 			if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
 				logger.Debug("QUIC stream read timeout", zap.Int("total_bytes", buf.Len()))
+				span.AddEvent("read_timeout")
+				observability.RecordLatency(ctx, "quic.Read", time.Since(startTime))
 				return buf.Bytes(), nil
 			}
+			observability.RecordError(span, err, "quic.readStream")
 			return nil, fmt.Errorf("read chunk: %w", err)
 		}
+		observability.RecordLatency(ctx, "quic.ReadChunk", time.Since(startTime))
 		if n < len(chunk) {
 			logger.Debug("QUIC stream read complete", zap.Int("total_bytes", buf.Len()))
+			span.AddEvent("read_complete")
 			return buf.Bytes(), nil
 		}
 	}
@@ -227,9 +295,18 @@ func (c *QuicClient) readStream() ([]byte, error) {
 
 // Close 关闭 QUIC 连接
 func (c *QuicClient) Close() {
+	// 创建 Span 追踪连接关闭
+	ctx, span := observability.StartSpan(context.Background(), "quic.Close",
+		trace.WithAttributes(
+			attribute.Int64("user_id", int64(c.userID)),
+			attribute.Int64("live_id", int64(c.liveID)),
+		))
+	defer span.End()
+
 	c.mutex.Lock()
 	if c.isClosed {
 		c.mutex.Unlock()
+		span.AddEvent("already_closed")
 		return
 	}
 	c.isClosed = true
@@ -237,35 +314,17 @@ func (c *QuicClient) Close() {
 	conn := c.conn
 	c.mutex.Unlock()
 
+	startTime := time.Now()
 	if stream != nil {
 		stream.Close()
 	}
 	if conn != nil {
 		conn.CloseWithError(0, "client closed")
 	}
+	observability.RecordLatency(ctx, "quic.Close", time.Since(startTime))
 
 	logger.Info("QUIC connection closed",
 		zap.Uint64("userID", c.userID),
 		zap.String("userName", c.userName),
 		zap.Uint64("liveID", c.liveID))
-}
-
-// getColorFunc 根据颜色字符串返回对应的彩色打印函数
-func getColorFunc(colorStr string) func(string, ...interface{}) (n int, err error) {
-	switch colorStr {
-	case "red":
-		return color.New(color.FgRed).Printf
-	case "green":
-		return color.New(color.FgGreen).Printf
-	case "blue":
-		return color.New(color.FgBlue).Printf
-	case "yellow":
-		return color.New(color.FgYellow).Printf
-	case "cyan":
-		return color.New(color.FgCyan).Printf
-	case "magenta":
-		return color.New(color.FgMagenta).Printf
-	default:
-		return color.New(color.FgWhite).Printf
-	}
 }

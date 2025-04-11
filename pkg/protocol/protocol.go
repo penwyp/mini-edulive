@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"github.com/penwyp/mini-edulive/pkg/pool"
 	"time"
+
+	"github.com/penwyp/mini-edulive/pkg/pool"
 
 	"github.com/klauspost/compress/zstd"
 )

@@ -2,9 +2,10 @@ package cache
 
 import (
 	"fmt"
-	"github.com/penwyp/mini-edulive/pkg/pool"
 	"strconv"
 	"strings"
+
+	"github.com/penwyp/mini-edulive/pkg/pool"
 )
 
 var redisKeyBufferPool = pool.RegisterPool("redis_key_buffer", func() *strings.Builder {

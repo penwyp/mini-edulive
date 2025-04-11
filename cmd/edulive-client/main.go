@@ -4,12 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/internal/core/connection"
