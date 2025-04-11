@@ -8,6 +8,9 @@ WORKER_CMD_DIR = cmd/edulive-worker
 WORKER_BINARY_NAME = mini-edulive-worker
 DISPATCHER_CMD_DIR = cmd/edulive-dispatcher
 DISPATCHER_BINARY_NAME = mini-edulive-dispatcher
+
+CLIENT_CREATE_CONF_FILE = config/config_client_create.yaml
+
 MODULE = github.com/penwyp/mini-edulive
 VERSION = 0.1.0
 BUILD_TIME = $(shell date +%Y-%m-%dT%H:%M:%S%z)
@@ -67,6 +70,11 @@ run-gateway: build-gateway
 run-client: build-client
 	@rm -f logs/edulive_client.log  # 清理日志文件
 	$(BIN_DIR)/$(CLIENT_BINARY_NAME)
+
+.PHONY: run-client-create quic
+run-client-create: build-client
+	@rm -f logs/edulive_client.log  # 清理日志文件
+	$(BIN_DIR)/$(CLIENT_BINARY_NAME) -config $(CLIENT_CREATE_CONF_FILE)
 
 .PHONY: run-worker
 run-worker: build-worker

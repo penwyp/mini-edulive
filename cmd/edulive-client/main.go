@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,9 +17,21 @@ import (
 )
 
 func main() {
-	configMgr := config.InitConfig("config/config_client.yaml")
+	// 定义命令行参数
+	configPath := flag.String("config", "config/config_client.yaml", "Path to the configuration file")
+	flag.Parse()
+
+	// 初始化配置
+	configMgr := config.InitConfig(*configPath)
 	cfg := configMgr.GetConfig()
 
+	// 检查配置文件是否有效
+	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Error: Configuration file %s does not exist\n", *configPath)
+		os.Exit(1)
+	}
+
+	// 初始化日志
 	logger.Init(config.Logger{
 		Level:      cfg.Logger.Level,
 		FilePath:   cfg.Logger.FilePath,
@@ -33,7 +46,8 @@ func main() {
 		zap.Uint64("liveID", cfg.Client.LiveID),
 		zap.Uint64("userID", cfg.Client.UserID),
 		zap.String("userName", cfg.Client.UserName),
-		zap.String("mode", cfg.Client.Mode))
+		zap.String("mode", cfg.Client.Mode),
+		zap.String("config_path", *configPath))
 
 	// 监听配置更新
 	go func() {
@@ -175,7 +189,6 @@ func main() {
 	logger.Info("Client stopped gracefully")
 }
 
-// attemptReconnect 尝试重新连接 WebSocket
 func attemptReconnect(ctx context.Context, wsClient *connection.Client, cfg *config.Config, maxRetries int, retryInterval time.Duration) bool {
 	for i := 0; i < maxRetries; i++ {
 		select {
@@ -197,7 +210,6 @@ func attemptReconnect(ctx context.Context, wsClient *connection.Client, cfg *con
 	return false
 }
 
-// attemptQuicReconnect 尝试重新连接 QUIC
 func attemptQuicReconnect(ctx context.Context, quicClient *connection.QuicClient, cfg *config.Config, maxRetries int, retryInterval time.Duration) bool {
 	for i := 0; i < maxRetries; i++ {
 		select {

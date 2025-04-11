@@ -122,7 +122,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.Uint64("userID", msg.UserID),
 				zap.String("userName", msg.Username))
 
-			if _, isBackdoor := s.isLiveRoomExists(r.Context(), msg.LiveID); !isBackdoor {
+			if exist, isBackdoor := s.isLiveRoomExists(r.Context(), msg.LiveID); exist && !isBackdoor {
 				resp := &protocol.BulletMessage{
 					Magic:      protocol.MagicNumber,
 					Version:    protocol.CurrentVersion,
