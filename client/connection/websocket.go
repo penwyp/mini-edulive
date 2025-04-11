@@ -16,7 +16,7 @@ import (
 
 // Client 表示 WebSocket 客户端
 type Client struct {
-	cfg      *config.Config
+	config   *config.Config
 	conn     *websocket.Conn
 	liveID   uint64
 	userID   uint64
@@ -40,7 +40,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}
 
 	client := &Client{
-		cfg:      cfg,
+		config:   cfg,
 		conn:     conn,
 		liveID:   cfg.Client.LiveID,
 		userID:   cfg.Client.UserID,
@@ -88,7 +88,7 @@ func (c *Client) sendHeartbeat() error {
 	c.mutex.RUnlock()
 
 	msg := protocol.NewHeartbeatMessage(c.userID)
-	data, err := msg.Encode()
+	data, err := msg.Encode(c.config.Performance.BulletCompression)
 	if err != nil {
 		return fmt.Errorf("encode heartbeat failed: %w", err)
 	}
@@ -118,7 +118,7 @@ func (c *Client) SendBullet(content string) error {
 	c.mutex.RUnlock()
 
 	msg := protocol.NewBulletMessage(c.liveID, c.userID, c.userName, content, "green")
-	data, err := msg.Encode()
+	data, err := msg.Encode(c.config.Performance.BulletCompression)
 	if err != nil {
 		return fmt.Errorf("encode bullet failed: %w", err)
 	}
@@ -150,7 +150,7 @@ func (c *Client) CreateRoom(liveID, userID uint64, userName string) error {
 	c.mutex.RUnlock()
 
 	msg := protocol.NewCreateRoomMessage(liveID, userID)
-	data, err := msg.Encode()
+	data, err := msg.Encode(c.config.Performance.BulletCompression)
 	if err != nil {
 		return fmt.Errorf("encode create room message failed: %w", err)
 	}
@@ -201,7 +201,7 @@ func (c *Client) CheckRoom(liveID, userID uint64, userName string) error {
 	c.mutex.RUnlock()
 
 	msg := protocol.NewCheckRoomMessage(liveID, userID)
-	data, err := msg.Encode()
+	data, err := msg.Encode(c.config.Performance.BulletCompression)
 	if err != nil {
 		return fmt.Errorf("encode check room message failed: %w", err)
 	}

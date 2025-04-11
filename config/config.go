@@ -148,14 +148,13 @@ type Middleware struct {
 
 // Performance 性能相关配置
 type Performance struct {
-	MemoryPool MemoryPool `mapstructure:"memoryPool"`
+	MemoryPool        MemoryPool `mapstructure:"memoryPool"`
+	BulletCompression bool       `mapstructure:"bulletCompression"` // 控制弹幕是否压缩
 }
 
 // MemoryPool 内存池配置
 type MemoryPool struct {
-	Enabled         bool `mapstructure:"enabled"`
-	TargetsCapacity int  `mapstructure:"targetsCapacity"`
-	RulesCapacity   int  `mapstructure:"rulesCapacity"`
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // InitConfig 初始化配置并返回 ConfigManager
@@ -335,8 +334,7 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("middleware.tracing", true)
 
 	v.SetDefault("performance.memoryPool.enabled", true)
-	v.SetDefault("performance.memoryPool.targetsCapacity", 100)
-	v.SetDefault("performance.memoryPool.rulesCapacity", 100)
+	v.SetDefault("performance.bulletCompression", true) // 默认不启用弹幕压缩
 
 	// client
 	v.SetDefault("client.userID", 10001)

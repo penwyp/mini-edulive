@@ -21,11 +21,7 @@ func NewPoolManager(cfg *config.Config) *ObjectPoolManager {
 
 	// 仅当配置中启用内存池时初始化池
 	if cfg.Performance.MemoryPool.Enabled {
-		pm.targetsPool = sync.Pool{
-			New: func() interface{} {
-				return make([]string, 0, cfg.Performance.MemoryPool.RulesCapacity)
-			},
-		}
+		pm.targetsPool = sync.Pool{}
 	} else {
 		// 未启用池时使用空池，避免空引用
 		pm.targetsPool = sync.Pool{}

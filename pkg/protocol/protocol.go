@@ -4,7 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"github.com/klauspost/compress/zstd"
 	"time"
+)
+
+// 全局 zstd 编码器和解码器（复用以提升性能）
+var (
+	zstdEncoder, _ = zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+	zstdDecoder, _ = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
 )
 
 //go:generate msgp
@@ -42,8 +49,8 @@ type BulletMessage struct {
 	Color     string `msgp:"color"`     // 颜色
 }
 
-// Encode 将 BulletMessage 编码为二进制数据
-func (msg *BulletMessage) Encode() ([]byte, error) {
+// Encode 将 BulletMessage 编码为二进制数据，支持可选压缩
+func (msg *BulletMessage) Encode(compress bool) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	// 写入固定字段
@@ -96,16 +103,44 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 		return nil, err
 	}
 
-	return buf.Bytes(), nil
+	data := buf.Bytes()
+
+	if compress {
+		// 使用 zstd 压缩
+		compressed := zstdEncoder.EncodeAll(data, nil)
+		// 在压缩数据前添加一个标志位（1 表示压缩）
+		result := append([]byte{1}, compressed...)
+		return result, nil
+	}
+
+	// 未压缩数据前添加标志位（0 表示未压缩）
+	return append([]byte{0}, data...), nil
 }
 
-// Decode 从二进制数据解码为 BulletMessage
+// Decode 从二进制数据解码为 BulletMessage，支持可选压缩
 func Decode(data []byte) (*BulletMessage, error) {
-	if len(data) < 20 { // 最小长度：魔数(2) + 版本(1) + 类型(1) + 时间戳(8) + 用户ID(8) + 直播间ID(8)
+	if len(data) < 1 {
 		return nil, errors.New("data too short")
 	}
 
-	reader := bytes.NewReader(data)
+	// 读取压缩标志位
+	isCompressed := data[0] == 1
+	rawData := data[1:]
+
+	if isCompressed {
+		// 解压数据
+		decompressed, err := zstdDecoder.DecodeAll(rawData, nil)
+		if err != nil {
+			return nil, errors.New("failed to decompress data")
+		}
+		rawData = decompressed
+	}
+
+	if len(rawData) < 20 {
+		return nil, errors.New("data too short after decompression")
+	}
+
+	reader := bytes.NewReader(rawData)
 	msg := &BulletMessage{}
 
 	// 读取魔数

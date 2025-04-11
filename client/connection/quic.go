@@ -21,7 +21,7 @@ import (
 
 // QuicClient 表示 QUIC 客户端
 type QuicClient struct {
-	cfg       *config.Config
+	config    *config.Config
 	conn      quic.Connection
 	stream    quic.Stream
 	liveID    uint64
@@ -58,7 +58,7 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 	}
 
 	client := &QuicClient{
-		cfg:       cfg,
+		config:    cfg,
 		conn:      conn,
 		stream:    stream,
 		userID:    cfg.Client.UserID,
@@ -107,7 +107,7 @@ func (c *QuicClient) sendInitMessage() error {
 		Content:   "",
 	}
 
-	data, err := msg.Encode()
+	data, err := msg.Encode(c.config.Performance.BulletCompression)
 	if err != nil {
 		return fmt.Errorf("encode init message failed: %w", err)
 	}

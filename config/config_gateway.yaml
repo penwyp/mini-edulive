@@ -31,8 +31,7 @@ observability:
   jaeger:
     enabled: true
     endpoint: "127.0.0.1:6831"
-plugins:
-  dir: "bin/plugins"
-  enabled:
-    - filter
-    - rate_limit
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

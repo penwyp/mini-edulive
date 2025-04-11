@@ -25,3 +25,7 @@ observability:
   prometheus:
     enabled: true
     path: "/metrics"
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

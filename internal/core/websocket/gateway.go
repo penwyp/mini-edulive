@@ -131,7 +131,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 					LiveID:    msg.LiveID,
 					Content:   "Live room already exists",
 				}
-				respData, err := resp.Encode()
+				respData, err := resp.Encode(s.config.Performance.BulletCompression)
 				if err != nil {
 					logger.Error("Failed to encode error response", zap.Error(err))
 					continue
@@ -149,7 +149,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			liveID = msg.LiveID
 
 			resp := protocol.NewCreateRoomMessage(msg.LiveID, msg.UserID)
-			respData, err := resp.Encode()
+			respData, err := resp.Encode(s.config.Performance.BulletCompression)
 			if err != nil {
 				logger.Error("Failed to encode response", zap.Error(err))
 				continue
@@ -184,7 +184,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				LiveID:    msg.LiveID,
 				Content:   content,
 			}
-			respData, err := resp.Encode()
+			respData, err := resp.Encode(s.config.Performance.BulletCompression)
 			if err != nil {
 				logger.Error("Failed to encode check room response", zap.Error(err))
 				continue
@@ -248,7 +248,7 @@ func (s *Server) unregisterLiveRoom(ctx context.Context, liveID uint64) {
 }
 
 func (s *Server) sendToKafka(ctx context.Context, msg *protocol.BulletMessage) error {
-	data, err := msg.Encode()
+	data, err := msg.Encode(s.config.Performance.BulletCompression)
 	if err != nil {
 		return err
 	}

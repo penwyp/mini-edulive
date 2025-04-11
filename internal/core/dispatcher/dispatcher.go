@@ -205,7 +205,7 @@ func (d *Dispatcher) pushBullets() {
 func (d *Dispatcher) encodeBullets(bullets []*protocol.BulletMessage) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, bullet := range bullets {
-		data, err := bullet.Encode()
+		data, err := bullet.Encode(d.config.Performance.BulletCompression)
 		if err != nil {
 			logger.Warn("Failed to encode bullet", zap.Error(err))
 			continue
