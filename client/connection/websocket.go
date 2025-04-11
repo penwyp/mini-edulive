@@ -155,6 +155,7 @@ func (f *SensitiveFilter) Contains(content string) bool {
 }
 
 // CreateRoom 发送创建直播间请求
+// CreateRoom 发送创建直播间请求
 func (c *Client) CreateRoom(liveID, userID uint64) error {
 	msg := protocol.NewCreateRoomMessage(liveID, userID)
 	data, err := msg.Encode()
@@ -166,7 +167,7 @@ func (c *Client) CreateRoom(liveID, userID uint64) error {
 		return err
 	}
 
-	// 等待响应（简单实现，假设服务端会回复一个确认消息）
+	// 等待响应
 	_, respData, err := c.conn.Read(context.Background())
 	if err != nil {
 		return err
@@ -174,6 +175,12 @@ func (c *Client) CreateRoom(liveID, userID uint64) error {
 	respMsg, err := protocol.Decode(respData)
 	if err != nil {
 		return err
+	}
+	if respMsg.Type == protocol.TypeCreateRoom && respMsg.Content != "" {
+		// 服务端返回错误消息
+		logger.Error("Failed to create room",
+			zap.String("error", respMsg.Content))
+		return fmt.Errorf("create room failed: %s", respMsg.Content)
 	}
 	if respMsg.Type != protocol.TypeCreateRoom {
 		return fmt.Errorf("unexpected response type: %d", respMsg.Type)

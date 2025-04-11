@@ -44,14 +44,14 @@ func main() {
 		}
 	}()
 
-	// 创建 WebSocket 客户端（发送弹幕或创建直播间）
+	// 创建 WebSocket 客户端
 	wsClient, err := connection.NewClient(cfg)
 	if err != nil {
 		logger.Panic("Failed to create WebSocket client", zap.Error(err))
 	}
 	defer wsClient.Close()
 
-	// 创建 QUIC 客户端（接收弹幕，适用于 create 和 send 模式）
+	// 创建 QUIC 客户端
 	quicClient, err := connection.NewQuicClient(cfg)
 	if err != nil {
 		logger.Panic("Failed to create QUIC client", zap.Error(err))
@@ -69,7 +69,7 @@ func main() {
 		wsClient.StartHeartbeat(ctx)
 	}()
 
-	// 启动 QUIC 接收（适用于所有模式）
+	// 启动 QUIC 接收
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -85,11 +85,11 @@ func main() {
 			err := wsClient.CreateRoom(cfg.Client.LiveID, cfg.Client.UserID)
 			if err != nil {
 				logger.Error("Failed to create room", zap.Error(err))
-			} else {
-				logger.Info("Room created successfully",
-					zap.Uint64("liveID", cfg.Client.LiveID),
-					zap.Uint64("userID", cfg.Client.UserID))
+				os.Exit(1) // 如果创建失败，退出程序
 			}
+			logger.Info("Room created successfully",
+				zap.Uint64("liveID", cfg.Client.LiveID),
+				zap.Uint64("userID", cfg.Client.UserID))
 		}()
 	} else if cfg.Client.Mode == "send" {
 		// 发送弹幕模式
