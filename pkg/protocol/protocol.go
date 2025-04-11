@@ -13,6 +13,7 @@ const (
 	CurrentVersion = 0x01
 	TypeBullet     = 0x01 // 弹幕消息
 	TypeHeartbeat  = 0x02 // 心跳消息
+	TypeCreateRoom = 0x03 // 创建直播间消息
 )
 
 // BulletMessage 定义二进制协议结构体
@@ -147,6 +148,20 @@ func NewHeartbeatMessage(userID uint64) *BulletMessage {
 		Type:       TypeHeartbeat,
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     userID,
+		ContentLen: 0,
+		Content:    "",
+	}
+}
+
+// NewCreateRoomMessage 创建直播间消息
+func NewCreateRoomMessage(liveID, userID uint64) *BulletMessage {
+	return &BulletMessage{
+		Magic:      MagicNumber,
+		Version:    CurrentVersion,
+		Type:       TypeCreateRoom,
+		Timestamp:  time.Now().UnixMilli(),
+		UserID:     userID,
+		LiveID:     liveID,
 		ContentLen: 0,
 		Content:    "",
 	}

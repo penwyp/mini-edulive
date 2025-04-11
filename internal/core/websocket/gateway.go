@@ -3,9 +3,12 @@ package websocket
 import (
 	"context"
 	"encoding/binary"
+	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
+	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/penwyp/mini-edulive/config"
@@ -17,17 +20,25 @@ import (
 
 // Server WebSocket 服务端
 type Server struct {
-	pool   *ConnPool
-	config *config.Config
-	kafka  *kafka.Writer // Kafka 生产者
+	pool        *ConnPool
+	config      *config.Config
+	kafka       *kafka.Writer // Kafka 生产者
+	redisClient *redis.ClusterClient
+	keyBuilder  *pkgcache.RedisKeyBuilder
 }
 
 // NewServer 创建 WebSocket 服务端
 func NewServer(cfg *config.Config) *Server {
+	redisClient, err := pkgcache.NewRedisClusterClient(&cfg.Redis)
+	if err != nil {
+		logger.Panic("Failed to create Redis client", zap.Error(err))
+	}
 	return &Server{
-		pool:   NewConnPool(cfg),
-		config: cfg,
-		kafka:  pkgkafka.NewWriter(&cfg.Kafka), // 使用新抽取的函数,
+		pool:        NewConnPool(cfg),
+		config:      cfg,
+		kafka:       pkgkafka.NewWriter(&cfg.Kafka), // 使用新抽取的函数,
+		redisClient: redisClient,
+		keyBuilder:  pkgcache.NewRedisKeyBuilder(),
 	}
 }
 
@@ -41,9 +52,10 @@ func (s *Server) Start() {
 }
 
 // handleWebSocket 处理 WebSocket 连接
+// handleWebSocket 处理 WebSocket 连接
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		CompressionMode: websocket.CompressionDisabled, // 二进制协议无需压缩
+		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
 		logger.Error("Failed to accept WebSocket connection", zap.Error(err))
@@ -52,7 +64,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	// 添加连接到池中
-	userID := uint64(0) // 初始假设用户ID未知
+	userID := uint64(0)
 	s.pool.Add(userID, conn)
 
 	for {
@@ -70,7 +82,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 更新用户ID（首次消息可能携带）
+		// 更新用户ID
 		if userID == 0 {
 			userID = msg.UserID
 			s.pool.UpdateUserID(userID, conn)
@@ -84,7 +96,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.Uint64("liveID", msg.LiveID),
 				zap.String("content", msg.Content))
 
-			// 将消息转发到 Kafka，按照 LiveID 分区
+			// 转发到 Kafka
 			err = s.sendToKafka(r.Context(), msg)
 			if err != nil {
 				logger.Error("Failed to send message to Kafka", zap.Error(err))
@@ -96,9 +108,54 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		case protocol.TypeHeartbeat:
 			logger.Info("Received heartbeat", zap.Uint64("userID", msg.UserID))
-			// TODO: 更新连接活跃状态
+
+		case protocol.TypeCreateRoom:
+			logger.Info("Received create room request",
+				zap.Uint64("userID", msg.UserID),
+				zap.Uint64("liveID", msg.LiveID))
+
+			// 记录活跃直播间到 Redis
+			err = s.registerLiveRoom(r.Context(), msg.LiveID)
+			if err != nil {
+				logger.Error("Failed to register live room", zap.Error(err))
+				continue
+			}
+
+			// 回复确认消息
+			resp := protocol.NewCreateRoomMessage(msg.LiveID, msg.UserID)
+			respData, err := resp.Encode()
+			if err != nil {
+				logger.Error("Failed to encode response", zap.Error(err))
+				continue
+			}
+			err = conn.Write(r.Context(), websocket.MessageBinary, respData)
+			if err != nil {
+				logger.Error("Failed to send response", zap.Error(err))
+				continue
+			}
+			logger.Info("Create room response sent",
+				zap.Uint64("userID", msg.UserID),
+				zap.Uint64("liveID", msg.LiveID))
 		}
 	}
+}
+
+// registerLiveRoom 记录活跃直播间到 Redis
+func (s *Server) registerLiveRoom(ctx context.Context, liveID uint64) error {
+	key := s.keyBuilder.ActiveLiveRoomsKey()
+	err := s.redisClient.SAdd(ctx, key, liveID).Err()
+	if err != nil {
+		return err
+	}
+	// 设置过期时间（例如 24 小时）
+	err = s.redisClient.Expire(ctx, key, 24*time.Hour).Err()
+	if err != nil {
+		return err
+	}
+	logger.Info("Live room registered",
+		zap.Uint64("liveID", liveID),
+		zap.String("redis_key", key))
+	return nil
 }
 
 // sendToKafka 将消息发送到 Kafka，按照 LiveID 分区

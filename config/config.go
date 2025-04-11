@@ -51,6 +51,7 @@ type Client struct {
 	UserID       uint64        `mapstructure:"userID"`
 	SendInterval time.Duration `mapstructure:"sendInterval"`
 	MaxRetries   int           `mapstructure:"maxRetries"`
+	Mode         string        `mapstructure:"mode"` // 客户端模式：send 或 create
 }
 
 // Logger 日志配置
@@ -426,6 +427,9 @@ func validateClient(cfg *Config) error {
 	}
 	if cfg.Client.MaxRetries < 0 {
 		return fmt.Errorf("client maxRetries cannot be negative: %d", cfg.Client.MaxRetries)
+	}
+	if cfg.Client.Mode != "send" && cfg.Client.Mode != "create" {
+		return fmt.Errorf("client mode must be 'send' or 'create': %s", cfg.Client.Mode)
 	}
 	return nil
 }

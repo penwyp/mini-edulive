@@ -15,4 +15,4 @@ client:
   userID: 20003
   sendInterval: 1500ms
   maxRetries: 3
-  mode: "send"  # 客户端模式：send（发送弹幕）或 create（创建直播间）
+  mode: "create"  # 客户端模式：send（发送弹幕）或 create（创建直播间）

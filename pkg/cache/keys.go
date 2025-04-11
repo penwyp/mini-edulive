@@ -1,31 +1,35 @@
+// pkg/cache/keys.go
 package cache
 
 import "fmt"
 
-// RedisKeyBuilder provides methods to generate Redis keys consistently
 type RedisKeyBuilder struct{}
 
-// NewRedisKeyBuilder creates a new RedisKeyBuilder instance
-func NewRedisKeyBuilder() *RedisKeyBuilder {
-	return &RedisKeyBuilder{}
-}
-
-// RateLimitKey generates a rate limiting key for a user
+// RateLimitKey 生成用户频率限制的键
 func (b *RedisKeyBuilder) RateLimitKey(userID uint64) string {
-	return fmt.Sprintf("rate:user:%d", userID)
+	return fmt.Sprintf("ratelimit:user:%d", userID)
 }
 
-// LiveBulletKey generates a key for storing bullets in a live room
+// LiveBulletKey 生成直播间弹幕存储的键
 func (b *RedisKeyBuilder) LiveBulletKey(liveID uint64) string {
 	return fmt.Sprintf("live:{%d}:bullets", liveID)
 }
 
-// LiveRankingKey generates a key for user activity rankings in a live room
+// LiveRankingKey 生成直播间用户活跃排名的键
 func (b *RedisKeyBuilder) LiveRankingKey(liveID uint64) string {
 	return fmt.Sprintf("live:{%d}:ranking", liveID)
 }
 
-// UserIDStr formats a userID as a string (for use in Redis commands)
+// ActiveLiveRoomsKey 生成活跃直播间列表的键
+func (b *RedisKeyBuilder) ActiveLiveRoomsKey() string {
+	return "live:active"
+}
+
+// UserIDStr 格式化用户 ID 为字符串
 func (b *RedisKeyBuilder) UserIDStr(userID uint64) string {
 	return fmt.Sprintf("%d", userID)
+}
+
+func NewRedisKeyBuilder() *RedisKeyBuilder {
+	return &RedisKeyBuilder{}
 }

@@ -1,3 +1,4 @@
+// internal/core/dispatcher/dispatcher.go
 package dispatcher
 
 import (
@@ -24,7 +25,7 @@ type Dispatcher struct {
 	redisClient  *redis.ClusterClient
 	keyBuilder   *pkgcache.RedisKeyBuilder
 	quicListener *quic.Listener
-	clients      map[uint64]quic.Stream // 客户端连接映射
+	clients      map[uint64]quic.Stream
 	mutex        sync.RWMutex
 	wg           sync.WaitGroup
 }
@@ -36,7 +37,6 @@ func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
 		return nil, err
 	}
 
-	// 初始化 QUIC 监听器
 	quicListener, err := quic.ListenAddr(cfg.Distributor.QUIC.Addr, generateTLSConfig(cfg.Distributor.QUIC), nil)
 	if err != nil {
 		logger.Error("Failed to start QUIC listener", zap.Error(err))
@@ -55,11 +55,9 @@ func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
 func (d *Dispatcher) Start() {
 	logger.Info("Dispatcher started", zap.String("quic_addr", d.config.Distributor.QUIC.Addr))
 
-	// 接受客户端连接
 	d.wg.Add(1)
 	go d.acceptConnections()
 
-	// 定时推送弹幕
 	d.wg.Add(1)
 	go d.pushBulletLoop()
 
@@ -72,7 +70,6 @@ func (d *Dispatcher) acceptConnections() {
 		conn, err := d.quicListener.Accept(context.Background())
 		if err != nil {
 			logger.Error("Failed to accept QUIC connection", zap.Error(err))
-			// 可选：添加重试逻辑
 			time.Sleep(time.Second)
 			continue
 		}
@@ -90,7 +87,6 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 		return
 	}
 
-	// 假设客户端首次发送消息包含 UserID
 	data, err := readStream(stream)
 	if err != nil {
 		logger.Error("Failed to read initial message", zap.Error(err))
@@ -109,9 +105,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 
 	logger.Info("New client connected", zap.Uint64("userID", msg.UserID))
 
-	// 保持流活跃，直到连接关闭
 	for {
-		// 读取流以检测连接是否仍然活跃
 		_, err := readStream(stream)
 		if err != nil {
 			logger.Warn("Stream read error, removing client",
@@ -137,7 +131,6 @@ func (d *Dispatcher) pushBullets() {
 	ctx := context.Background()
 	startTime := time.Now()
 
-	// 从 Redis 获取 Top 10000 弹幕
 	bullets, err := d.fetchTopBullets(ctx)
 	if err != nil {
 		logger.Error("Failed to fetch top bullets", zap.Error(err))
@@ -148,14 +141,12 @@ func (d *Dispatcher) pushBullets() {
 		return
 	}
 
-	// 序列化并压缩
 	compressedData, err := d.compressBullets(bullets)
 	if err != nil {
 		logger.Error("Failed to compress bullets", zap.Error(err))
 		return
 	}
 
-	// 分发给所有客户端
 	d.mutex.RLock()
 	for userID, stream := range d.clients {
 		err := d.sendToClient(stream, compressedData)
@@ -172,37 +163,66 @@ func (d *Dispatcher) pushBullets() {
 }
 
 func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMessage, error) {
-	// 这里假设从所有直播间获取 Top 10000，实际可能需要按 LiveID 分组
-	rankingKey := d.keyBuilder.LiveRankingKey(0) // 示例：全局排行榜
-	users, err := d.redisClient.ZRevRangeWithScores(ctx, rankingKey, 0, 9999).Result()
+	// 获取活跃直播间列表
+	activeRooms, err := d.redisClient.SMembers(ctx, d.keyBuilder.ActiveLiveRoomsKey()).Result()
 	if err != nil {
 		return nil, err
 	}
-
-	var bullets []*protocol.BulletMessage
-	for _, user := range users {
-		userID := user.Member.(string)
-		bulletKey := d.keyBuilder.LiveBulletKey(0) // 示例：全局弹幕池
-		content, err := d.redisClient.LPop(ctx, bulletKey).Result()
-		if err == redis.Nil {
-			continue
-		} else if err != nil {
-			return nil, err
-		}
-
-		bullets = append(bullets, &protocol.BulletMessage{
-			Magic:      protocol.MagicNumber,
-			Version:    protocol.CurrentVersion,
-			Type:       protocol.TypeBullet,
-			Timestamp:  time.Now().UnixMilli(),
-			UserID:     parseUserID(userID),
-			LiveID:     0, // 示例值
-			ContentLen: uint16(len(content)),
-			Content:    content,
-		})
+	if len(activeRooms) == 0 {
+		logger.Debug("No active live rooms found")
+		return nil, nil
 	}
 
-	return bullets, nil
+	var allBullets []*protocol.BulletMessage
+	for _, roomStr := range activeRooms {
+		liveID, err := strconv.ParseUint(roomStr, 10, 64)
+		if err != nil {
+			logger.Warn("Invalid liveID in active rooms", zap.String("liveID", roomStr), zap.Error(err))
+			continue
+		}
+
+		// 为每个直播间获取 Top 10000 弹幕
+		rankingKey := d.keyBuilder.LiveRankingKey(liveID)
+		users, err := d.redisClient.ZRevRangeWithScores(ctx, rankingKey, 0, 9999).Result()
+		if err != nil {
+			logger.Warn("Failed to fetch ranking for liveID", zap.Uint64("liveID", liveID), zap.Error(err))
+			continue
+		}
+
+		bulletKey := d.keyBuilder.LiveBulletKey(liveID)
+		for _, user := range users {
+			userID := user.Member.(string)
+			content, err := d.redisClient.LPop(ctx, bulletKey).Result()
+			if err == redis.Nil {
+				continue
+			} else if err != nil {
+				logger.Warn("Failed to fetch bullet for liveID", zap.Uint64("liveID", liveID), zap.Error(err))
+				continue
+			}
+
+			allBullets = append(allBullets, &protocol.BulletMessage{
+				Magic:      protocol.MagicNumber,
+				Version:    protocol.CurrentVersion,
+				Type:       protocol.TypeBullet,
+				Timestamp:  time.Now().UnixMilli(),
+				UserID:     parseUserID(userID),
+				LiveID:     liveID,
+				ContentLen: uint16(len(content)),
+				Content:    content,
+			})
+
+			// 限制总弹幕数量
+			if len(allBullets) >= 10000 {
+				break
+			}
+		}
+
+		if len(allBullets) >= 10000 {
+			break
+		}
+	}
+
+	return allBullets, nil
 }
 
 func (d *Dispatcher) compressBullets(bullets []*protocol.BulletMessage) ([]byte, error) {
@@ -212,7 +232,6 @@ func (d *Dispatcher) compressBullets(bullets []*protocol.BulletMessage) ([]byte,
 		return nil, err
 	}
 
-	// 使用 msgp 序列化（更高效）
 	for _, bullet := range bullets {
 		err = msgp.Encode(enc, bullet)
 		if err != nil {
@@ -246,7 +265,6 @@ func (d *Dispatcher) Close() {
 	logger.Info("Dispatcher closed")
 }
 
-// 辅助函数：生成 TLS 配置（QUIC 必需）
 func generateTLSConfig(quicConf config.QUIC) *tls.Config {
 	cert, err := tls.LoadX509KeyPair(quicConf.CertFile, quicConf.KeyFile)
 	if err != nil {
@@ -258,7 +276,6 @@ func generateTLSConfig(quicConf config.QUIC) *tls.Config {
 	}
 }
 
-// 辅助函数：读取 QUIC Stream 数据
 func readStream(stream quic.Stream) ([]byte, error) {
 	buf := make([]byte, 1024)
 	n, err := stream.Read(buf)
@@ -268,7 +285,6 @@ func readStream(stream quic.Stream) ([]byte, error) {
 	return buf[:n], nil
 }
 
-// 辅助函数：解析 UserID
 func parseUserID(userIDStr string) uint64 {
 	id, _ := strconv.ParseUint(userIDStr, 10, 64)
 	return id

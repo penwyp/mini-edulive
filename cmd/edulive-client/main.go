@@ -1,3 +1,4 @@
+// cmd/edulive-client/main.go
 package main
 
 import (
@@ -33,7 +34,8 @@ func main() {
 		zap.String("websocket_endpoint", cfg.WebSocket.Endpoint),
 		zap.String("quic_addr", cfg.Distributor.QUIC.Addr),
 		zap.Uint64("liveID", cfg.Client.LiveID),
-		zap.Uint64("userID", cfg.Client.UserID))
+		zap.Uint64("userID", cfg.Client.UserID),
+		zap.String("mode", cfg.Client.Mode))
 
 	// 监听配置变更
 	go func() {
@@ -42,19 +44,22 @@ func main() {
 		}
 	}()
 
-	// 创建 WebSocket 客户端（发送弹幕）
+	// 创建 WebSocket 客户端（发送弹幕或创建直播间）
 	wsClient, err := connection.NewClient(cfg)
 	if err != nil {
 		logger.Panic("Failed to create WebSocket client", zap.Error(err))
 	}
 	defer wsClient.Close()
 
-	// 创建 QUIC 客户端（接收弹幕）
-	quicClient, err := connection.NewQuicClient(cfg)
-	if err != nil {
-		logger.Panic("Failed to create QUIC client", zap.Error(err))
+	// 创建 QUIC 客户端（接收弹幕，仅在 send 模式下需要）
+	var quicClient *connection.QuicClient
+	if cfg.Client.Mode == "send" {
+		quicClient, err = connection.NewQuicClient(cfg)
+		if err != nil {
+			logger.Panic("Failed to create QUIC client", zap.Error(err))
+		}
+		defer quicClient.Close()
 	}
-	defer quicClient.Close()
 
 	// 启动心跳和接收线程
 	ctx, cancel := context.WithCancel(context.Background())
@@ -67,31 +72,51 @@ func main() {
 		wsClient.StartHeartbeat(ctx)
 	}()
 
-	// 启动 QUIC 接收
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		quicClient.Receive(ctx)
-	}()
+	// 根据模式执行逻辑
+	if cfg.Client.Mode == "create" {
+		// 创建直播间模式
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := wsClient.CreateRoom(cfg.Client.LiveID, cfg.Client.UserID)
+			if err != nil {
+				logger.Error("Failed to create room", zap.Error(err))
+			} else {
+				logger.Info("Room created successfully",
+					zap.Uint64("liveID", cfg.Client.LiveID),
+					zap.Uint64("userID", cfg.Client.UserID))
+			}
+		}()
+	} else {
+		// 发送弹幕模式
+		// 启动 QUIC 接收
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			quicClient.Receive(ctx)
+		}()
 
-	// 模拟发送弹幕
-	go func() {
-		ticker := time.NewTicker(cfg.Client.SendInterval)
-		defer ticker.Stop()
-		count := 0
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				count++
-				content := fmt.Sprintf("Bullet %d from user %d", count, cfg.Client.UserID)
-				if err := wsClient.SendBullet(content); err != nil {
-					logger.Warn("Failed to send bullet", zap.Error(err))
+		// 模拟发送弹幕
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ticker := time.NewTicker(cfg.Client.SendInterval)
+			defer ticker.Stop()
+			count := 0
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					count++
+					content := fmt.Sprintf("Bullet %d from user %d", count, cfg.Client.UserID)
+					if err := wsClient.SendBullet(content); err != nil {
+						logger.Warn("Failed to send bullet", zap.Error(err))
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	// 等待终止信号
 	sigChan := make(chan os.Signal, 1)

@@ -2,6 +2,7 @@ package connection
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/coder/websocket"
@@ -151,4 +152,34 @@ func (f *SensitiveFilter) Contains(content string) bool {
 		}
 	}
 	return false
+}
+
+// CreateRoom 发送创建直播间请求
+func (c *Client) CreateRoom(liveID, userID uint64) error {
+	msg := protocol.NewCreateRoomMessage(liveID, userID)
+	data, err := msg.Encode()
+	if err != nil {
+		return err
+	}
+	err = c.conn.Write(context.Background(), websocket.MessageBinary, data)
+	if err != nil {
+		return err
+	}
+
+	// 等待响应（简单实现，假设服务端会回复一个确认消息）
+	_, respData, err := c.conn.Read(context.Background())
+	if err != nil {
+		return err
+	}
+	respMsg, err := protocol.Decode(respData)
+	if err != nil {
+		return err
+	}
+	if respMsg.Type != protocol.TypeCreateRoom {
+		return fmt.Errorf("unexpected response type: %d", respMsg.Type)
+	}
+	logger.Info("Received create room response",
+		zap.Uint64("liveID", respMsg.LiveID),
+		zap.Uint64("userID", respMsg.UserID))
+	return nil
 }
