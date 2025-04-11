@@ -8,6 +8,9 @@ WORKER_CMD_DIR = cmd/edulive-worker
 WORKER_BINARY_NAME = mini-edulive-worker
 DISPATCHER_CMD_DIR = cmd/edulive-dispatcher
 DISPATCHER_BINARY_NAME = mini-edulive-dispatcher
+
+CLIENT_CREATE_CONF_FILE = config/config_client_create.yaml
+
 MODULE = github.com/penwyp/mini-edulive
 VERSION = 0.1.0
 BUILD_TIME = $(shell date +%Y-%m-%dT%H:%M:%S%z)
@@ -15,7 +18,8 @@ GIT_COMMIT = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GO_VERSION = $(shell go version | awk '{print $$3}')
 
 # 编译标志
-LDFLAGS = -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION)"
+#LDFLAGS = -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION)"
+LDFLAGS = -ldflags "-X main.Version=$(VERSION) -X main.GoVersion=$(GO_VERSION)"
 
 # 工具
 GO = go
@@ -35,7 +39,7 @@ deps:
 
 # 编译项目并将二进制放入 bin 目录
 .PHONY: build
-build: deps protocol build-gateway build-client build-worker build-dispatcher
+build: deps build-gateway build-client build-worker build-dispatcher
 
 .PHONY: build-gateway
 build-gateway: deps
@@ -60,22 +64,27 @@ build-worker: deps
 # 运行项目
 .PHONY: run-gateway
 run-gateway: build-gateway
-	@rm -f logs/edulive_gateway.log  # 清理日志文件
+	@echo '' > logs/edulive_gateway.log  # 清理日志文件
 	$(BIN_DIR)/$(GATEWAY_BINARY_NAME)
 
 .PHONY: run-client quic
 run-client: build-client
-	@rm -f logs/edulive_client.log  # 清理日志文件
+	@echo '' > logs/edulive_client.log  # 清理日志文件
 	$(BIN_DIR)/$(CLIENT_BINARY_NAME)
+
+.PHONY: run-client-create quic
+run-client-create: build-client
+	@echo '' >logs/edulive_client.log  # 清理日志文件
+	$(BIN_DIR)/$(CLIENT_BINARY_NAME) -config $(CLIENT_CREATE_CONF_FILE)
 
 .PHONY: run-worker
 run-worker: build-worker
-	@rm -f logs/edulive_worker.log  # Cleanup log file
+	@echo '' >logs/edulive_worker.log  # Cleanup log file
 	$(BIN_DIR)/$(WORKER_BINARY_NAME)
 
 .PHONY: run-dispatcher quic
 run-dispatcher: build-dispatcher
-	@rm -f logs/edulive_dispatcher.log  # Cleanup log file
+	@echo '' >logs/edulive_dispatcher.log  # Cleanup log file
 	$(BIN_DIR)/$(DISPATCHER_BINARY_NAME)
 
 # 测试
@@ -101,80 +110,12 @@ clean:
 	rm -rf $(BIN_DIR)
 	$(GO) clean
 
-# 生成 Swagger 文档（假设使用 swag）
-.PHONY: swagger
-swagger:
-	swag init -g $(GATEWAY_CMD_DIR)/main.go -o api/swagger
-
-# 构建 Docker 镜像
-.PHONY: docker-build
-docker-build:
-	$(DOCKER) build -t $(MODULE):$(VERSION) -f Dockerfile .
-
-# 运行 Docker 容器
-.PHONY: docker-run
-docker-run: docker-build
-	$(DOCKER) run -p 8080:8080 $(MODULE):$(VERSION)
-
-# 性能测试（使用 wrk）
-.PHONY: bench
-bench: build
-	$(BIN_DIR)/$(GATEWAY_BINARY_NAME) & \
-	sleep 2; \
-	$(WRK) -t10 -c100 -d30s http://localhost:8080/health; \
-	pkill $(GATEWAY_BINARY_NAME)
-
 # 安装工具（可选）
 .PHONY: tools
 tools:
 	$(GO) install github.com/swaggo/swag/cmd/swag@latest
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	# 如果 wrk 未安装，可手动安装：https://github.com/wg/wrk
-
-# 显示版本信息
-.PHONY: version
-version:
-	@echo "Version: $(VERSION)"
-	@echo "Build Time: $(BUILD_TIME)"
-	@echo "Git Commit: $(GIT_COMMIT)"
-	@echo "Go Version: $(GO_VERSION)"
-
-.PHONY: manage-test-start
-manage-test-start:
-	chmod +x ./test/manage_test_services.sh
-	@echo "Starting test services via script..."
-	@./test/manage_test_services.sh start
-
-.PHONY: manage-test-stop
-manage-test-stop:
-	chmod +x ./test/manage_test_services.sh
-	@echo "Stopping test services via script..."
-	@./test/manage_test_services.sh stop
-
-.PHONY: manage-test-status
-manage-test-status:
-	chmod +x ./test/manage_test_services.sh
-	@echo "Checking test services status via script..."
-	@./test/manage_test_services.sh status
-
-.PHONY: manage-test-health
-manage-test-health:
-	chmod +x ./test/manage_test_services.sh
-	@echo "Checking test services health via script..."
-	@./test/manage_test_services.sh health
-
-.PHONY: setup-consul
-setup-consul:
-	@echo "Checking if Consul is installed..."
-	@#command -v consul >/dev/null 2>&1 || { echo "Consul not found. Please install Consul first."; exit 1; }
-	@#echo "Starting Consul agent in dev mode..."
-	@#consul agent -dev & \
-#	sleep 2; \
-	echo "Pushing load balancer rules to Consul KV Store..."; \
-	curl -X PUT -d '{"/api/v1/user": ["http://localhost:8381", "http://localhost:8383"], "/api/v1/order": ["http://localhost:8382"]}' http://localhost:8300/v1/kv/edulive/loadbalancer/rules; \
-	echo "Consul test environment setup complete."; \
-	echo "Load balancer rules:"; \
-	curl http://localhost:8300/v1/kv/edulive/loadbalancer/rules?raw
 
 .PHONY: prepare-proto
 prepare-proto:
@@ -212,13 +153,13 @@ proto: prepare-proto
 .PHONY: start-test-env
 start-test-env:
 	@echo "Starting test environment..."
-	@echo "Starting Redis..."
-	@docker-compose -f test/docker/docker-compose.yml up -d mg-redis
-	@echo "Starting Consul..."
-	@docker-compose -f test/docker/docker-compose.yml up -d mg-consul
-	@echo "Starting monitoring(Grafana|Prometheus|Jaeger)..."
-	chmod +x test/docker/setup_grafana.sh
-	chmod +x test/docker/setup_monitoring.sh
+	@echo "Starting zookeeper/kafka/redis cluster/jaeger/prometheus/grafana..."
+	@docker-compose -f test/docker/docker-compose.yaml up -d
+	@echo "Setting up monitoring(Grafana|Prometheus|Jaeger)..."
+	@chmod +x test/docker/setup_grafana.sh
+	@chmod +x test/docker/setup_monitoring.sh
+	@echo "Setting up kafka topic"
+	@docker exec -it me-kafka kafka-topics --create --topic bullet_topic --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
 	@./test/docker/setup_monitoring.sh
 
 # 启动监控服务
@@ -231,16 +172,17 @@ setup-monitoring:
 # 停止外部依赖服务
 .PHONY: stop-test-env
 stop-test-env:
-	@docker-compose -f test/docker/docker-compose.yml down
+	@docker-compose -f test/docker/docker-compose.yaml down
 	@echo "外部依赖服务已停止"
-
-.PHONY: protocol
-protocol:
-	@echo "Installing msgp tool..."
-	@$(GO) install github.com/tinylib/msgp@latest || { echo "Failed to install msgp"; exit 1; }
-	@echo "Running go generate for ./pkg/protocol..."
-	@$(GO) generate ./pkg/protocol || { echo "Failed to run go generate"; exit 1; }
-	@echo "Protocol code generation completed."
+	@docker volume rm -f docker_me-zookeeper-data
+	@docker volume rm -f docker_me-kafka-data
+	@docker volume rm -f docker_me-redis-node-1-data
+	@docker volume rm -f docker_me-redis-node-2-data
+	@docker volume rm -f docker_me-redis-node-3-data
+	@docker volume rm -f docker_me-jaeger-data
+	@docker volume rm -f docker_me-prometheus-data
+	@docker volume rm -f docker_me-grafana-data
+	@echo "外部依赖服务数据卷已删除"
 
 .PHONY: quic
 quic:
@@ -253,3 +195,34 @@ quic:
 		openssl req -x509 -newkey rsa:4096 -keyout test/ssl/key.pem -out test/ssl/cert.pem -days 9999 -nodes -config test/ssl/san.cnf || { echo "Failed to generate certificates"; exit 1; }; \
 		echo "Certificates generated: test/ssl/cert.pem, test/ssl/key.pem"; \
 	fi
+
+# 启动所有服务
+.PHONY: start-all
+start-all: build
+	@echo "Starting all services..."
+	@chmod +x scripts/control.sh
+	@bash scripts/control.sh start all || { echo "Failed to start all services"; exit 1; }
+
+# 停止所有服务
+.PHONY: stop-all
+stop-all:
+	@echo "Stopping all services..."
+	@chmod +x scripts/control.sh
+	@bash scripts/control.sh stop all || { echo "Failed to stop all services"; exit 1; }
+
+.PHONY: restart-all
+restart-all: stop-all start-all
+
+# 显示可访问的 HTTP 链接
+.PHONY: links
+links:
+	@IP=$$(hostname -I 2>/dev/null | awk '{print $$1}' || ifconfig | grep 'inet ' | grep -v 127.0.0.1 | awk '{print $$2}' | head -n 1); \
+	if [ -z "$$IP" ]; then \
+		IP="127.0.0.1"; \
+		echo "Warning: Could not detect external IP, falling back to 127.0.0.1"; \
+	fi; \
+	echo "Accessible HTTP links:"; \
+	echo "  - Jaeger UI: http://$$IP:8430"; \
+	echo "  - Jaeger OTLP HTTP: http://$$IP:8431"; \
+	echo "  - Grafana: http://$$IP:8450/d/mini-edulive-monitoring (login: admin/admin123)"; \
+	echo "  - Prometheus: http://$$IP:8490"

@@ -5,200 +5,266 @@ import (
 	"sync"
 	"time"
 
-	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
-
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 	pkgcache "github.com/penwyp/mini-edulive/pkg/cache"
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/penwyp/mini-edulive/pkg/protocol"
+	"github.com/penwyp/mini-edulive/pkg/util"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 )
 
+// Worker manages the processing of bullet messages from Kafka to Redis.
 type Worker struct {
 	config      *config.Config
 	kafkaReader *kafka.Reader
 	redisClient *redis.ClusterClient
-	keyBuilder  *pkgcache.RedisKeyBuilder // Add key builder
+	keyBuilder  *pkgcache.RedisKeyBuilder
 	wg          sync.WaitGroup
+
+	// Add new fields for better composition
+	messageProcessor *MessageProcessor
+	filterChain      *FilterChain
+	storage          *BulletStorage
 }
 
-func NewWorker(cfg *config.Config) (*Worker, error) {
+// Options for configuring the worker
+type Options struct {
+	NumWorkers  int
+	BufferSize  int
+	RateLimiter RateLimiter
+}
+
+// DefaultOptions provides sensible defaults
+func DefaultOptions() Options {
+	return Options{
+		NumWorkers:  10,
+		BufferSize:  1000,
+		RateLimiter: NewDefaultRateLimiter(),
+	}
+}
+
+// NewWorker creates a new worker instance
+func NewWorker(spanCtx context.Context, cfg *config.Config) (*Worker, error) {
+	ctx, span := observability.StartSpan(spanCtx, "worker.NewWorker")
+	defer span.End()
+
+	startTime := time.Now()
 	redisClient, err := pkgcache.NewRedisClusterClient(&cfg.Redis)
 	if err != nil {
 		logger.Error("Failed to create Redis client", zap.Error(err))
+		observability.RecordError(span, err, "worker.NewWorker")
+		observability.RedisOperations.WithLabelValues("connect", "failed").Inc()
 		return nil, err
 	}
-	return &Worker{
-		config:      cfg,
-		kafkaReader: pkgkafka.NewReader(&cfg.Kafka),
-		redisClient: redisClient,
-		keyBuilder:  pkgcache.NewRedisKeyBuilder(), // Initialize key builder
-	}, nil
+	observability.RedisOperations.WithLabelValues("connect", "success").Inc()
+	observability.RecordLatency(ctx, "redis.NewClusterClient", time.Since(startTime))
+
+	keyBuilder := pkgcache.NewRedisKeyBuilder()
+
+	// Create component instances
+	storage := NewBulletStorage(redisClient, keyBuilder)
+
+	// Create filter chain with all filters
+	filterChain := NewFilterChain(
+		NewAgeFilter(),
+		NewContentLengthFilter(),
+		NewRateLimitFilter(redisClient, keyBuilder),
+		NewSensitiveWordFilter([]string{"badword", "spam", "offensive"}),
+		NewDuplicateFilter(redisClient, keyBuilder),
+	)
+
+	// Create message processor
+	messageProcessor := NewMessageProcessor(filterChain, storage)
+
+	w := &Worker{
+		config:           cfg,
+		kafkaReader:      pkgkafka.NewReader(&cfg.Kafka),
+		redisClient:      redisClient,
+		keyBuilder:       keyBuilder,
+		messageProcessor: messageProcessor,
+		filterChain:      filterChain,
+		storage:          storage,
+	}
+
+	return w, nil
 }
 
-func (w *Worker) Start(ctx context.Context) {
+// Start begins consuming messages from Kafka and processing them
+func (w *Worker) Start(spanCtx context.Context) {
+	ctx, span := observability.StartSpan(spanCtx, "worker.Start")
+	defer span.End()
+
 	logger.Info("Worker started, consuming Kafka messages...")
+
 	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				logger.Info("Worker context canceled, stopping...")
-				return
-			default:
-				startTime := time.Now()
-				msg, err := w.kafkaReader.ReadMessage(ctx)
-				if err != nil {
-					logger.Error("Failed to read Kafka message", zap.Error(err))
-					continue
-				}
-				logger.Debug("Kafka message received",
-					zap.Int64("offset", msg.Offset),
-					zap.Int("partition", msg.Partition),
-					zap.ByteString("key", msg.Key),
-					zap.Duration("read_latency", time.Since(startTime)))
-				w.processMessage(ctx, msg)
-			}
-		}
-	}()
+	go w.consumeMessages(ctx)
 }
 
-func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
+// consumeMessages handles the Kafka message consumption loop
+func (w *Worker) consumeMessages(ctx context.Context) {
+	defer w.wg.Done()
+
+	// Use a buffered channel to manage backpressure
+	msgChan := make(chan kafka.Message, DefaultOptions().BufferSize)
+	workerPool := make(chan struct{}, DefaultOptions().NumWorkers)
+	var workerWG sync.WaitGroup
+
+	// Start worker goroutines
+	for i := 0; i < DefaultOptions().NumWorkers; i++ {
+		workerWG.Add(1)
+		go func(workerId int) {
+			defer workerWG.Done()
+
+			for msg := range msgChan {
+				workerPool <- struct{}{}
+				w.handleMessage(ctx, msg, workerId)
+				<-workerPool
+			}
+		}(i)
+	}
+
+	// Main message consumption loop
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Worker context canceled, stopping...", zap.Error(ctx.Err()))
+			close(msgChan)
+			workerWG.Wait()
+			return
+		default:
+			msgCtx, msgSpan := observability.StartSpan(context.Background(), "worker.consumeMessage")
+			startTime := time.Now()
+
+			msg, err := w.kafkaReader.ReadMessage(msgCtx)
+			if err != nil {
+				if err == context.DeadlineExceeded {
+					logger.Debug("Kafka read timeout, continuing...")
+				} else {
+					logger.Error("Failed to read Kafka message", zap.Error(err))
+					observability.RecordError(msgSpan, err, "worker.consumeMessage")
+				}
+				msgSpan.End()
+				continue
+			}
+
+			msgSpan.SetAttributes(
+				attribute.Int64("offset", msg.Offset),
+				attribute.Int("partition", msg.Partition),
+				attribute.String("key", string(msg.Key)),
+			)
+			observability.RecordLatency(msgCtx, "kafka.ReadMessage", time.Since(startTime))
+			logger.Debug("Kafka message received",
+				zap.Int64("offset", msg.Offset),
+				zap.Int("partition", msg.Partition),
+				zap.ByteString("key", msg.Key),
+				zap.Duration("read_latency", time.Since(startTime)))
+
+			observability.KafkaMessagesReceived.WithLabelValues("worker").Inc()
+
+			select {
+			case msgChan <- msg:
+			default:
+				logger.Warn("Message channel full, dropping message")
+				observability.KafkaMessagesDropped.WithLabelValues("worker").Inc()
+			}
+
+			msgSpan.End()
+		}
+	}
+}
+
+// handleMessage processes a single Kafka message
+func (w *Worker) handleMessage(ctx context.Context, msg kafka.Message, workerId int) {
+	msgCtx, span := observability.StartSpan(ctx, "worker.handleMessage")
+	defer span.End()
+
+	span.SetAttributes(attribute.Int("worker_id", workerId))
+	startTime := time.Now()
+
+	// Decode the message
+	bullet, err := w.decodeMessage(msgCtx, msg)
+	if err != nil {
+		observability.BulletMessagesProcessed.WithLabelValues("worker", "failed").Inc()
+		return
+	}
+	defer bullet.Release()
+
+	// Process the message through the processor
+	if err := w.messageProcessor.Process(msgCtx, bullet); err != nil {
+		logger.Warn("Failed to process message",
+			zap.Uint64("liveID", bullet.LiveID),
+			zap.Uint64("userID", bullet.UserID),
+			zap.Error(err))
+		return
+	}
+
+	observability.BulletMessagesProcessed.WithLabelValues("worker", "success").Inc()
+	logger.Debug("Message processing completed",
+		zap.Uint64("liveID", bullet.LiveID),
+		zap.Uint64("userID", bullet.UserID),
+		zap.String("userName", bullet.UserName),
+		zap.Duration("total_processing_time", time.Since(startTime)))
+	observability.RecordLatency(ctx, "worker.handleMessage", time.Since(startTime))
+}
+
+// decodeMessage decodes a Kafka message into a BulletMessage
+func (w *Worker) decodeMessage(ctx context.Context, msg kafka.Message) (*protocol.BulletMessage, error) {
+	ctx, span := observability.StartSpan(ctx, "worker.decodeMessage")
+	defer span.End()
+
 	startTime := time.Now()
 	bullet, err := protocol.Decode(msg.Value)
 	if err != nil {
 		logger.Warn("Failed to decode message",
 			zap.ByteString("raw_data", msg.Value),
 			zap.Error(err))
-		return
+		observability.RecordError(span, err, "worker.decodeMessage")
+		observability.ProtocolParseErrors.WithLabelValues("bullet").Inc()
+		return nil, err
 	}
+
+	span.SetAttributes(
+		attribute.Int64("live_id", int64(bullet.LiveID)),
+		attribute.Int64("user_id", int64(bullet.UserID)),
+		attribute.String("user_name", bullet.UserName),
+		attribute.String("content", bullet.Content),
+	)
 	logger.Debug("Message decoded",
 		zap.Uint64("liveID", bullet.LiveID),
 		zap.Uint64("userID", bullet.UserID),
-		zap.String("userName", bullet.Username),
+		zap.String("userName", bullet.UserName),
 		zap.String("content", bullet.Content),
 		zap.Duration("decode_time", time.Since(startTime)))
 
-	currentTime := time.Now().UnixMilli()
-	if currentTime-bullet.Timestamp > (3600 * 1000) {
-		logger.Warn("Discarding old message",
-			zap.Int64("timestamp", bullet.Timestamp),
-			zap.Int64("current_time", currentTime),
-			zap.Uint64("userID", bullet.UserID),
-			zap.String("userName", bullet.Username))
-		return
-	}
-	logger.Debug("Timestamp validated",
-		zap.Int64("timestamp", bullet.Timestamp),
-		zap.Int64("age_ms", currentTime-bullet.Timestamp))
-
-	if len(bullet.Content) == 0 || len(bullet.Content) > 200 {
-		logger.Warn("Invalid content length",
-			zap.Uint64("userID", bullet.UserID),
-			zap.Int("content_length", len(bullet.Content)))
-		return
-	}
-	logger.Debug("Content length validated",
-		zap.Int("content_length", len(bullet.Content)))
-
-	if !w.rateLimit(ctx, bullet.UserID, bullet.Username) {
-		logger.Warn("Rate limit exceeded",
-			zap.Uint64("userID", bullet.UserID),
-			zap.String("userName", bullet.Username))
-		return
-	}
-	logger.Debug("Rate limit passed",
-		zap.Uint64("userID", bullet.UserID),
-		zap.String("userName", bullet.Username))
-
-	w.storeMessage(ctx, bullet)
-	logger.Debug("Message processing completed",
-		zap.Uint64("liveID", bullet.LiveID),
-		zap.Uint64("userID", bullet.UserID),
-		zap.String("userName", bullet.Username),
-		zap.Duration("total_processing_time", time.Since(startTime)))
+	bullet.Color = util.GetDefaultColorOrRandom(bullet.Color)
+	observability.RecordLatency(ctx, "worker.decodeMessage", time.Since(startTime))
+	return bullet, nil
 }
 
-func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) bool {
-	key := w.keyBuilder.RateLimitKey(userID)
-	logger.Debug("Applying rate limit",
-		zap.String("key", key),
-		zap.Uint64("userID", userID),
-		zap.String("userName", userName),
-	)
+// Close shuts down the worker and all associated resources
+func (w *Worker) Close(spanCtx context.Context) {
+	ctx, span := observability.StartSpan(spanCtx, "worker.Close")
+	defer span.End()
 
-	script := redis.NewScript(`
-        local count = redis.call("INCR", KEYS[1])
-        if count == 1 then
-            redis.call("EXPIRE", KEYS[1], 10)
-        end
-        if count > 100000000 then
-            return 0
-        end
-        return 1
-    `)
-	startTime := time.Now()
-	result, err := script.Run(ctx, w.redisClient, []string{key}).Int()
-	if err != nil {
-		logger.Error("Rate limit script failed", zap.Error(err), zap.String("key", key))
-		return false
-	}
-	logger.Debug("Rate limit script executed",
-		zap.String("key", key),
-		zap.Int("count", result),
-		zap.Duration("execution_time", time.Since(startTime)))
-	return result == 1
-}
-
-func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) {
-	startTime := time.Now()
-	pipe := w.redisClient.Pipeline()
-
-	bulletKey := w.keyBuilder.LiveBulletKey(msg.LiveID)
-	pipe.LPush(ctx, bulletKey, msg.Content)
-	pipe.LTrim(ctx, bulletKey, 0, 999)
-	logger.Debug("Prepared bullet storage",
-		zap.String("bullet_key", bulletKey),
-		zap.String("content", msg.Content))
-
-	rankingKey := w.keyBuilder.LiveRankingKey(msg.LiveID)
-	pipe.ZIncrBy(ctx, rankingKey, 1, w.keyBuilder.UserIDStr(msg.UserID))
-	logger.Debug("Prepared ranking update",
-		zap.String("ranking_key", rankingKey),
-		zap.String("userID_str", w.keyBuilder.UserIDStr(msg.UserID)))
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		logger.Error("Failed to store message in Redis",
-			zap.Uint64("liveID", msg.LiveID),
-			zap.Uint64("userID", msg.UserID),
-			zap.String("userName", msg.Username),
-			zap.Error(err))
-		return
-	}
-	logger.Debug("Redis pipeline executed",
-		zap.String("bullet_key", bulletKey),
-		zap.String("ranking_key", rankingKey),
-		zap.Duration("execution_time", time.Since(startTime)))
-
-	logger.Info("Message stored",
-		zap.Uint64("liveID", msg.LiveID),
-		zap.Uint64("userID", msg.UserID),
-		zap.String("userName", msg.Username),
-		zap.String("content", msg.Content))
-}
-
-func (w *Worker) Close() {
 	logger.Debug("Closing worker resources...")
+	startTime := time.Now()
+
 	if err := w.kafkaReader.Close(); err != nil {
 		logger.Error("Failed to close Kafka reader", zap.Error(err))
+		observability.RecordError(span, err, "worker.Close")
 	}
 	if err := w.redisClient.Close(); err != nil {
 		logger.Error("Failed to close Redis client", zap.Error(err))
+		observability.RecordError(span, err, "worker.Close")
+		observability.RedisOperations.WithLabelValues("close", "failed").Inc()
 	}
 	w.wg.Wait()
+	observability.RedisOperations.WithLabelValues("close", "success").Inc()
+	observability.RecordLatency(ctx, "worker.Close", time.Since(startTime))
 	logger.Debug("Worker resources closed successfully")
 }

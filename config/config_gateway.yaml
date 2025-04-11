@@ -28,11 +28,14 @@ observability:
   prometheus:
     enabled: true
     path: "/metrics"
+    port: 8320
   jaeger:
     enabled: true
-    endpoint: "127.0.0.1:6831"
-plugins:
-  dir: "bin/plugins"
-  enabled:
-    - filter
-    - rate_limit
+    endpoint: 127.0.0.1:8431
+    httpEndpoint: 127.0.0.1:8430
+    sampler: always
+    sampleratio: 1
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

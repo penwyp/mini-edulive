@@ -8,10 +8,10 @@ import (
 	"sync"
 	"syscall"
 
-	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
-
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"github.com/penwyp/mini-edulive/internal/core/worker"
+	pkgkafka "github.com/penwyp/mini-edulive/pkg/kafka"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
@@ -37,6 +37,10 @@ func main() {
 		zap.String("redis_addrs", fmt.Sprintf("%v", cfg.Redis.Addrs)),
 	)
 
+	observability.InitTracing(cfg)
+
+	observability.TryEnablePrometheusExport(cfg)
+
 	// Check Kafka topic message count before starting worker
 	checkKafkaMessageCount(cfg)
 
@@ -47,8 +51,10 @@ func main() {
 		}
 	}()
 
+	ctx := context.Background()
+
 	// Initialize worker
-	w, err := worker.NewWorker(cfg)
+	w, err := worker.NewWorker(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create worker", zap.Error(err))
 	}
@@ -72,7 +78,7 @@ func main() {
 
 	// Cleanup
 	cancel()
-	w.Close()
+	w.Close(ctx)
 	wg.Wait()
 	logger.Sync()
 	logger.Info("Worker stopped gracefully")

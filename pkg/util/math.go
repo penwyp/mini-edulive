@@ -40,3 +40,8 @@ func GCDTwo(a, b int) int {
 func FormatUint64ToString(num uint64) string {
 	return strconv.FormatUint(num, 10)
 }
+
+// FormatInt64ToString format uint64 to string
+func FormatInt64ToString(num int64) string {
+	return strconv.FormatInt(num, 10)
+}

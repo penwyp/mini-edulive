@@ -7,8 +7,8 @@ source_file="data/source_code.txt"
 mkdir -p data
 
 # 清空或创建输出文件
-> "$structure_file"
-> "$source_file"
+rm "$structure_file"
+rm "$source_file"
 
 # 打印项目目录结构到 structure_file
 tree -I 'vendor|node_modules|googleapis|grpc-proto|.git' >> "$structure_file"

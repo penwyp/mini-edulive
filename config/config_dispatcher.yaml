@@ -25,3 +25,8 @@ observability:
   prometheus:
     enabled: true
     path: "/metrics"
+    port: 8321
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

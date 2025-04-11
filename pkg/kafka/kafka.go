@@ -1,8 +1,8 @@
-// pkg/kafka/kafka.go
 package kafka
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/pkg/logger"
@@ -29,9 +29,10 @@ func NewReader(cfg *config.Kafka) *kafka.Reader {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  cfg.Brokers,
 		Topic:    cfg.Topic,
-		GroupID:  cfg.GroupID, // 用于消费者组负载均衡
-		MinBytes: 10e3,        // 10KB
-		MaxBytes: 10e6,        // 10MB
+		GroupID:  cfg.GroupID,            // 用于消费者组负载均衡
+		MinBytes: 1,                      // 10KB
+		MaxBytes: 10e6,                   // 10MB
+		MaxWait:  100 * time.Millisecond, // 最大等待时间设为较短值（如100ms），减少延迟
 	})
 	logger.Info("Kafka reader initialized",
 		zap.Strings("brokers", cfg.Brokers),

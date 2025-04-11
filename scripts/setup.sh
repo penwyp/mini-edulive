@@ -1,1 +1,0 @@
-docker-compose -f ../test/docker/docker-compose.yaml up -d

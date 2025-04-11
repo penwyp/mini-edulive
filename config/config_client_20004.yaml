@@ -14,10 +14,10 @@ observability:
   prometheus:
     enabled: true
     path: "/metrics"
-    port: 8323
+    port: 8324
 client:
   liveID: 10000
-  userID: 20003
+  userID: 20004
   userName: "FriApr-01"
   sendInterval: 500ms
   maxRetries: 3

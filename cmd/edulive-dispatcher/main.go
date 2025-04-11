@@ -1,18 +1,21 @@
 package main
 
 import (
+	"context"
+
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/internal/core/dispatcher"
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"go.uber.org/zap"
 )
 
 func main() {
-	// 初始化配置
+	// Initialize configuration
 	configMgr := config.InitConfig("config/config_dispatcher.yaml")
 	cfg := configMgr.GetConfig()
 
-	// 初始化日志
+	// Initialize logger
 	logger.Init(config.Logger{
 		Level:      cfg.Logger.Level,
 		FilePath:   cfg.Logger.FilePath,
@@ -27,17 +30,23 @@ func main() {
 		zap.String("quic_addr", cfg.Distributor.QUIC.Addr),
 	)
 
-	// 监听配置变更
+	observability.InitTracing(cfg)
+
+	observability.TryEnablePrometheusExport(cfg)
+
+	// Listen for configuration updates
 	go func() {
 		for newCfg := range configMgr.ConfigChan {
 			logger.Info("Configuration updated", zap.Any("new_config", newCfg))
 		}
 	}()
 
-	// 启动 Dispatcher
-	d, err := dispatcher.NewDispatcher(cfg)
+	ctx := context.Background()
+
+	// Start Dispatcher
+	d, err := dispatcher.NewDispatcher(ctx, cfg)
 	if err != nil {
 		logger.Panic("Failed to create dispatcher", zap.Error(err))
 	}
-	d.Start()
+	d.Start(ctx)
 }

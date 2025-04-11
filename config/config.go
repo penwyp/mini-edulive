@@ -118,11 +118,20 @@ type Observability struct {
 	Jaeger     Jaeger     `mapstructure:"jaeger"`
 }
 
+func (i Observability) GetPrometheusExportPort() int {
+	return i.Prometheus.Port
+}
+
+func (i Observability) GetPrometheusExportPortStr() string {
+	return fmt.Sprintf("%d", i.Prometheus.Port)
+}
+
 // Prometheus 配置
 type Prometheus struct {
 	Enabled      bool   `mapstructure:"enabled"`
 	Path         string `mapstructure:"path"`
 	HttpEndpoint string `mapstructure:"httpEndpoint"`
+	Port         int    `mapstructure:"port"`
 }
 
 // Jaeger 追踪配置
@@ -148,14 +157,13 @@ type Middleware struct {
 
 // Performance 性能相关配置
 type Performance struct {
-	MemoryPool MemoryPool `mapstructure:"memoryPool"`
+	MemoryPool        MemoryPool `mapstructure:"memoryPool"`
+	BulletCompression bool       `mapstructure:"bulletCompression"` // 控制弹幕是否压缩
 }
 
 // MemoryPool 内存池配置
 type MemoryPool struct {
-	Enabled         bool `mapstructure:"enabled"`
-	TargetsCapacity int  `mapstructure:"targetsCapacity"`
-	RulesCapacity   int  `mapstructure:"rulesCapacity"`
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // InitConfig 初始化配置并返回 ConfigManager
@@ -323,8 +331,8 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("observability.prometheus.path", "/metrics")
 	v.SetDefault("observability.prometheus.httpEndpoint", "127.0.0.1:9090")
 	v.SetDefault("observability.jaeger.enabled", false)
-	v.SetDefault("observability.jaeger.endpoint", "127.0.0.1:6831")
-	v.SetDefault("observability.jaeger.httpEndpoint", "127.0.0.1:14268")
+	v.SetDefault("observability.jaeger.endpoint", "127.0.0.1:8430")
+	v.SetDefault("observability.jaeger.httpEndpoint", "127.0.0.1:8431")
 	v.SetDefault("observability.jaeger.sampler", "always")
 	v.SetDefault("observability.jaeger.sampleRatio", 1.0)
 
@@ -335,8 +343,7 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("middleware.tracing", true)
 
 	v.SetDefault("performance.memoryPool.enabled", true)
-	v.SetDefault("performance.memoryPool.targetsCapacity", 100)
-	v.SetDefault("performance.memoryPool.rulesCapacity", 100)
+	v.SetDefault("performance.bulletCompression", true) // 默认不启用弹幕压缩
 
 	// client
 	v.SetDefault("client.userID", 10001)
@@ -509,4 +516,8 @@ func InitTestConfigManager() {
 		ConfigChan: make(chan *Config, 1),
 		mutex:      sync.RWMutex{},
 	}
+}
+
+func (i *Config) GetBulletCompression() bool {
+	return i.Performance.BulletCompression
 }
