@@ -18,8 +18,9 @@ import (
 type Client struct {
 	cfg      *config.Config
 	conn     *websocket.Conn
-	userID   uint64
 	liveID   uint64
+	userID   uint64
+	userName string
 	mutex    sync.RWMutex // 保护连接状态
 	isClosed bool
 }
@@ -48,8 +49,9 @@ func NewClient(cfg *config.Config) (*Client, error) {
 
 	logger.Info("WebSocket client initialized",
 		zap.String("endpoint", cfg.WebSocket.Endpoint),
+		zap.Uint64("liveID", client.liveID),
 		zap.Uint64("userID", client.userID),
-		zap.Uint64("liveID", client.liveID))
+		zap.String("userName", client.userName))
 
 	return client, nil
 }
@@ -97,10 +99,13 @@ func (c *Client) sendHeartbeat() error {
 		return fmt.Errorf("write heartbeat failed: %w", err)
 	}
 
-	logger.Debug("Heartbeat sent", zap.Uint64("userID", c.userID))
+	logger.Debug("Heartbeat sent",
+		zap.Uint64("userID", c.userID),
+		zap.String("userName", c.userName))
 	return nil
 }
 
+// SendBullet 发送弹幕消息
 // SendBullet 发送弹幕消息
 func (c *Client) SendBullet(content string) error {
 	c.mutex.RLock()
@@ -111,7 +116,7 @@ func (c *Client) SendBullet(content string) error {
 	conn := c.conn
 	c.mutex.RUnlock()
 
-	msg := protocol.NewBulletMessage(c.liveID, c.userID, content)
+	msg := protocol.NewBulletMessage(c.liveID, c.userID, c.userName, content)
 	data, err := msg.Encode()
 	if err != nil {
 		return fmt.Errorf("encode bullet failed: %w", err)
@@ -127,13 +132,14 @@ func (c *Client) SendBullet(content string) error {
 
 	logger.Info("Bullet sent",
 		zap.Uint64("userID", c.userID),
+		zap.String("userName", c.userName),
 		zap.Uint64("liveID", c.liveID),
 		zap.String("content", content))
 	return nil
 }
 
 // CreateRoom 创建直播间
-func (c *Client) CreateRoom(liveID, userID uint64) error {
+func (c *Client) CreateRoom(liveID, userID uint64, userName string) error {
 	c.mutex.RLock()
 	if c.isClosed {
 		c.mutex.RUnlock()
@@ -178,12 +184,13 @@ func (c *Client) CreateRoom(liveID, userID uint64) error {
 
 	logger.Info("Create room request sent",
 		zap.Uint64("liveID", liveID),
-		zap.Uint64("userID", userID))
+		zap.Uint64("userID", userID),
+		zap.String("userName", userName))
 	return nil
 }
 
 // CheckRoom 检查直播间是否存在
-func (c *Client) CheckRoom(liveID, userID uint64) error {
+func (c *Client) CheckRoom(liveID, userID uint64, userName string) error {
 	c.mutex.RLock()
 	if c.isClosed {
 		c.mutex.RUnlock()
@@ -229,6 +236,7 @@ func (c *Client) CheckRoom(liveID, userID uint64) error {
 	logger.Info("Check room request sent",
 		zap.Uint64("liveID", liveID),
 		zap.Uint64("userID", userID),
+		zap.String("userName", userName),
 		zap.String("result", resp.Content))
 	return nil
 }
@@ -246,6 +254,9 @@ func (c *Client) Close() {
 
 	if conn != nil {
 		conn.Close(websocket.StatusNormalClosure, "client closed")
-		logger.Info("WebSocket connection closed", zap.Uint64("userID", c.userID))
+		logger.Info("WebSocket connection closed",
+			zap.Uint64("userID", c.userID),
+			zap.String("userName", c.userName),
+		)
 	}
 }

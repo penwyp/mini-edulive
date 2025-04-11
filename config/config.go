@@ -49,6 +49,7 @@ type App struct {
 type Client struct {
 	LiveID       uint64        `mapstructure:"liveID"`
 	UserID       uint64        `mapstructure:"userID"`
+	UserName     string        `mapstructure:"userName"`
 	SendInterval time.Duration `mapstructure:"sendInterval"`
 	MaxRetries   int           `mapstructure:"maxRetries"`
 	Mode         string        `mapstructure:"mode"` // 客户端模式：send 或 create
@@ -338,11 +339,11 @@ func setDefaultValues(v *viper.Viper) {
 
 	// client
 	v.SetDefault("client.userID", 10001)
+	v.SetDefault("client.userName", "test_user")
 	v.SetDefault("client.sendInterval", 100*time.Millisecond)
 	v.SetDefault("client.maxRetries", 3)
 }
 
-// validateConfig 验证配置有效性
 // validateConfig 验证配置有效性
 func validateConfig(cfg *Config) error {
 	// 检查配置类型

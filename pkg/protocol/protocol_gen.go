@@ -14,8 +14,8 @@ func (z *BulletMessage) DecodeMsg(dc *msgp.Reader) (err error) {
 		err = msgp.WrapError(err)
 		return
 	}
-	if zb0001 != 8 {
-		err = msgp.ArrayError{Wanted: 8, Got: zb0001}
+	if zb0001 != 9 {
+		err = msgp.ArrayError{Wanted: 9, Got: zb0001}
 		return
 	}
 	z.Magic, err = dc.ReadUint16()
@@ -48,6 +48,11 @@ func (z *BulletMessage) DecodeMsg(dc *msgp.Reader) (err error) {
 		err = msgp.WrapError(err, "LiveID")
 		return
 	}
+	z.Username, err = dc.ReadString()
+	if err != nil {
+		err = msgp.WrapError(err, "Username")
+		return
+	}
 	z.ContentLen, err = dc.ReadUint16()
 	if err != nil {
 		err = msgp.WrapError(err, "ContentLen")
@@ -63,8 +68,8 @@ func (z *BulletMessage) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *BulletMessage) EncodeMsg(en *msgp.Writer) (err error) {
-	// array header, size 8
-	err = en.Append(0x98)
+	// array header, size 9
+	err = en.Append(0x99)
 	if err != nil {
 		return
 	}
@@ -98,6 +103,11 @@ func (z *BulletMessage) EncodeMsg(en *msgp.Writer) (err error) {
 		err = msgp.WrapError(err, "LiveID")
 		return
 	}
+	err = en.WriteString(z.Username)
+	if err != nil {
+		err = msgp.WrapError(err, "Username")
+		return
+	}
 	err = en.WriteUint16(z.ContentLen)
 	if err != nil {
 		err = msgp.WrapError(err, "ContentLen")
@@ -114,14 +124,15 @@ func (z *BulletMessage) EncodeMsg(en *msgp.Writer) (err error) {
 // MarshalMsg implements msgp.Marshaler
 func (z *BulletMessage) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// array header, size 8
-	o = append(o, 0x98)
+	// array header, size 9
+	o = append(o, 0x99)
 	o = msgp.AppendUint16(o, z.Magic)
 	o = msgp.AppendUint8(o, z.Version)
 	o = msgp.AppendUint8(o, z.Type)
 	o = msgp.AppendInt64(o, z.Timestamp)
 	o = msgp.AppendUint64(o, z.UserID)
 	o = msgp.AppendUint64(o, z.LiveID)
+	o = msgp.AppendString(o, z.Username)
 	o = msgp.AppendUint16(o, z.ContentLen)
 	o = msgp.AppendString(o, z.Content)
 	return
@@ -135,8 +146,8 @@ func (z *BulletMessage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 		err = msgp.WrapError(err)
 		return
 	}
-	if zb0001 != 8 {
-		err = msgp.ArrayError{Wanted: 8, Got: zb0001}
+	if zb0001 != 9 {
+		err = msgp.ArrayError{Wanted: 9, Got: zb0001}
 		return
 	}
 	z.Magic, bts, err = msgp.ReadUint16Bytes(bts)
@@ -169,6 +180,11 @@ func (z *BulletMessage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 		err = msgp.WrapError(err, "LiveID")
 		return
 	}
+	z.Username, bts, err = msgp.ReadStringBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err, "Username")
+		return
+	}
 	z.ContentLen, bts, err = msgp.ReadUint16Bytes(bts)
 	if err != nil {
 		err = msgp.WrapError(err, "ContentLen")
@@ -185,6 +201,6 @@ func (z *BulletMessage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z *BulletMessage) Msgsize() (s int) {
-	s = 1 + msgp.Uint16Size + msgp.Uint8Size + msgp.Uint8Size + msgp.Int64Size + msgp.Uint64Size + msgp.Uint64Size + msgp.Uint16Size + msgp.StringPrefixSize + len(z.Content)
+	s = 1 + msgp.Uint16Size + msgp.Uint8Size + msgp.Uint8Size + msgp.Int64Size + msgp.Uint64Size + msgp.Uint64Size + msgp.StringPrefixSize + len(z.Username) + msgp.Uint16Size + msgp.StringPrefixSize + len(z.Content)
 	return
 }

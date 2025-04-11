@@ -31,8 +31,9 @@ type Dispatcher struct {
 }
 
 type ClientInfo struct {
-	Stream quic.Stream
-	LiveID uint64
+	Stream   quic.Stream
+	LiveID   uint64
+	UserName string
 }
 
 func NewDispatcher(cfg *config.Config) (*Dispatcher, error) {
@@ -109,14 +110,16 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 
 	d.mutex.Lock()
 	d.clients[msg.UserID] = &ClientInfo{
-		Stream: stream,
-		LiveID: msg.LiveID,
+		Stream:   stream,
+		LiveID:   msg.LiveID,
+		UserName: msg.Username,
 	}
 	d.mutex.Unlock()
 
 	logger.Info("New client connected",
+		zap.Uint64("liveID", msg.LiveID),
 		zap.Uint64("userID", msg.UserID),
-		zap.Uint64("liveID", msg.LiveID))
+		zap.String("userName", msg.Username))
 
 	// 保持流活跃，直到连接关闭
 	for {
@@ -124,6 +127,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 		if err != nil {
 			logger.Warn("Stream read error, removing client",
 				zap.Uint64("userID", msg.UserID),
+				zap.String("userName", msg.Username),
 				zap.Error(err))
 			d.removeClient(msg.UserID)
 			return
@@ -174,6 +178,7 @@ func (d *Dispatcher) pushBullets() {
 		if err != nil {
 			logger.Error("Failed to compress bullets for client",
 				zap.Uint64("userID", userID),
+				zap.String("userName", clientInfo.UserName),
 				zap.Error(err))
 			continue
 		}
@@ -182,6 +187,7 @@ func (d *Dispatcher) pushBullets() {
 		if err != nil {
 			logger.Warn("Failed to send to client",
 				zap.Uint64("userID", userID),
+				zap.String("userName", clientInfo.UserName),
 				zap.Error(err))
 			d.removeClient(userID)
 		}

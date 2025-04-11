@@ -95,6 +95,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case protocol.TypeBullet:
 			logger.Info("Received bullet message",
 				zap.Uint64("userID", msg.UserID),
+				zap.String("userName", msg.Username),
 				zap.Uint64("liveID", msg.LiveID),
 				zap.String("content", msg.Content))
 
@@ -105,15 +106,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			logger.Info("Message sent to Kafka",
 				zap.Uint64("userID", msg.UserID),
+				zap.String("userName", msg.Username),
 				zap.Uint64("liveID", msg.LiveID))
 
 		case protocol.TypeHeartbeat:
-			logger.Info("Received heartbeat", zap.Uint64("userID", msg.UserID))
+			logger.Info("Received heartbeat",
+				zap.Uint64("userID", msg.UserID),
+				zap.String("userName", msg.Username),
+			)
 
 		case protocol.TypeCreateRoom:
 			logger.Info("Received create room request",
+				zap.Uint64("liveID", msg.LiveID),
 				zap.Uint64("userID", msg.UserID),
-				zap.Uint64("liveID", msg.LiveID))
+				zap.String("userName", msg.Username))
 
 			if s.isLiveRoomExists(r.Context(), msg.LiveID) {
 				resp := &protocol.BulletMessage{
@@ -155,13 +161,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			logger.Info("Create room response sent",
+				zap.Uint64("liveID", msg.LiveID),
 				zap.Uint64("userID", msg.UserID),
-				zap.Uint64("liveID", msg.LiveID))
+				zap.String("userName", msg.Username))
 
 		case protocol.TypeCheckRoom:
 			logger.Info("Received check room request",
+				zap.Uint64("liveID", msg.LiveID),
 				zap.Uint64("userID", msg.UserID),
-				zap.Uint64("liveID", msg.LiveID))
+				zap.String("userName", msg.Username))
 
 			exists := s.isLiveRoomExists(r.Context(), msg.LiveID)
 			content := "exists"
@@ -189,8 +197,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			logger.Info("Check room response sent",
-				zap.Uint64("userID", msg.UserID),
 				zap.Uint64("liveID", msg.LiveID),
+				zap.Uint64("userID", msg.UserID),
+				zap.String("userName", msg.Username),
 				zap.String("result", content))
 		}
 	}

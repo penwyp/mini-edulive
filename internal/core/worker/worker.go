@@ -77,6 +77,7 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 	logger.Debug("Message decoded",
 		zap.Uint64("liveID", bullet.LiveID),
 		zap.Uint64("userID", bullet.UserID),
+		zap.String("userName", bullet.Username),
 		zap.String("content", bullet.Content),
 		zap.Duration("decode_time", time.Since(startTime)))
 
@@ -85,7 +86,8 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 		logger.Warn("Discarding old message",
 			zap.Int64("timestamp", bullet.Timestamp),
 			zap.Int64("current_time", currentTime),
-			zap.Uint64("userID", bullet.UserID))
+			zap.Uint64("userID", bullet.UserID),
+			zap.String("userName", bullet.Username))
 		return
 	}
 	logger.Debug("Timestamp validated",
@@ -101,24 +103,31 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 	logger.Debug("Content length validated",
 		zap.Int("content_length", len(bullet.Content)))
 
-	if !w.rateLimit(ctx, bullet.UserID) {
-		logger.Warn("Rate limit exceeded", zap.Uint64("userID", bullet.UserID))
+	if !w.rateLimit(ctx, bullet.UserID, bullet.Username) {
+		logger.Warn("Rate limit exceeded",
+			zap.Uint64("userID", bullet.UserID),
+			zap.String("userName", bullet.Username))
 		return
 	}
-	logger.Debug("Rate limit passed", zap.Uint64("userID", bullet.UserID))
+	logger.Debug("Rate limit passed",
+		zap.Uint64("userID", bullet.UserID),
+		zap.String("userName", bullet.Username))
 
 	w.storeMessage(ctx, bullet)
 	logger.Debug("Message processing completed",
 		zap.Uint64("liveID", bullet.LiveID),
 		zap.Uint64("userID", bullet.UserID),
+		zap.String("userName", bullet.Username),
 		zap.Duration("total_processing_time", time.Since(startTime)))
 }
 
-func (w *Worker) rateLimit(ctx context.Context, userID uint64) bool {
+func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) bool {
 	key := w.keyBuilder.RateLimitKey(userID)
 	logger.Debug("Applying rate limit",
 		zap.String("key", key),
-		zap.Uint64("userID", userID))
+		zap.Uint64("userID", userID),
+		zap.String("userName", userName),
+	)
 
 	script := redis.NewScript(`
         local count = redis.call("INCR", KEYS[1])
@@ -165,6 +174,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 		logger.Error("Failed to store message in Redis",
 			zap.Uint64("liveID", msg.LiveID),
 			zap.Uint64("userID", msg.UserID),
+			zap.String("userName", msg.Username),
 			zap.Error(err))
 		return
 	}
@@ -176,6 +186,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 	logger.Info("Message stored",
 		zap.Uint64("liveID", msg.LiveID),
 		zap.Uint64("userID", msg.UserID),
+		zap.String("userName", msg.Username),
 		zap.String("content", msg.Content))
 }
 

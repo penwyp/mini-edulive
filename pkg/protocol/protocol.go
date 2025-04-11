@@ -21,17 +21,18 @@ const (
 //
 //msgp:tuple BulletMessage
 type BulletMessage struct {
-	Magic      uint16 `msgp:"magic"`
-	Version    uint8  `msgp:"version"`
-	Type       uint8  `msgp:"type"`
-	Timestamp  int64  `msgp:"timestamp"`
-	UserID     uint64 `msgp:"user_id"`
-	LiveID     uint64 `msgp:"live_id"`
-	ContentLen uint16 `msgp:"content_len"`
-	Content    string `msgp:"content"`
+	Magic      uint16 `msgp:"magic"`       // 魔数
+	Version    uint8  `msgp:"version"`     // 版本号
+	Type       uint8  `msgp:"type"`        // 消息类型
+	Timestamp  int64  `msgp:"timestamp"`   // 时间戳
+	UserID     uint64 `msgp:"user_id"`     // 用户ID
+	LiveID     uint64 `msgp:"live_id"`     // 直播间ID
+	Username   string `msgp:"username"`    // 用户名（新增）
+	ContentLen uint16 `msgp:"content_len"` // 内容长度
+	Content    string `msgp:"content"`     // 内容
 }
 
-// Encode 将 BulletMessage 编码为二进制数据（Protobuf 格式）
+// Encode 将 BulletMessage 编码为二进制数据
 func (msg *BulletMessage) Encode() ([]byte, error) {
 	buf := new(bytes.Buffer)
 
@@ -54,6 +55,18 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 	if err := binary.Write(buf, binary.BigEndian, msg.LiveID); err != nil {
 		return nil, err
 	}
+
+	// 写入 Username（变长字段，前缀长度 + 内容）
+	usernameBytes := []byte(msg.Username)
+	usernameLen := uint16(len(usernameBytes))
+	if err := binary.Write(buf, binary.BigEndian, usernameLen); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.BigEndian, usernameBytes); err != nil {
+		return nil, err
+	}
+
+	// 写入 Content
 	if err := binary.Write(buf, binary.BigEndian, msg.ContentLen); err != nil {
 		return nil, err
 	}
@@ -64,9 +77,9 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Decode 从二进制数据解码为 BulletMessage（Protobuf 格式）
+// Decode 从二进制数据解码为 BulletMessage
 func Decode(data []byte) (*BulletMessage, error) {
-	if len(data) < 22 { // 最小长度：魔数(2) + 版本(1) + 类型(1) + 时间戳(8) + 用户ID(8) + 内容长度(2)
+	if len(data) < 24 { // 最小长度：魔数(2) + 版本(1) + 类型(1) + 时间戳(8) + 用户ID(8) + 直播间ID(8) + 用户名长度(2)
 		return nil, errors.New("data too short")
 	}
 
@@ -115,12 +128,21 @@ func Decode(data []byte) (*BulletMessage, error) {
 		return nil, err
 	}
 
-	// 读取内容长度
+	// 读取用户名长度和内容（新增）
+	var usernameLen uint16
+	if err := binary.Read(reader, binary.BigEndian, &usernameLen); err != nil {
+		return nil, err
+	}
+	usernameBytes := make([]byte, usernameLen)
+	if err := binary.Read(reader, binary.BigEndian, &usernameBytes); err != nil {
+		return nil, err
+	}
+	msg.Username = string(usernameBytes)
+
+	// 读取内容长度和内容
 	if err := binary.Read(reader, binary.BigEndian, &msg.ContentLen); err != nil {
 		return nil, err
 	}
-
-	// 读取内容
 	content := make([]byte, msg.ContentLen)
 	if err := binary.Read(reader, binary.BigEndian, &content); err != nil {
 		return nil, err
@@ -131,7 +153,7 @@ func Decode(data []byte) (*BulletMessage, error) {
 }
 
 // NewBulletMessage 创建弹幕消息
-func NewBulletMessage(liveID, userID uint64, content string) *BulletMessage {
+func NewBulletMessage(liveID, userID uint64, username, content string) *BulletMessage {
 	return &BulletMessage{
 		Magic:      MagicNumber,
 		Version:    CurrentVersion,
@@ -139,6 +161,7 @@ func NewBulletMessage(liveID, userID uint64, content string) *BulletMessage {
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     userID,
 		LiveID:     liveID,
+		Username:   username,
 		ContentLen: uint16(len(content)),
 		Content:    content,
 	}

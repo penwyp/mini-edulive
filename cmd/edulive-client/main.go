@@ -32,6 +32,7 @@ func main() {
 		zap.String("quic_addr", cfg.Distributor.QUIC.Addr),
 		zap.Uint64("liveID", cfg.Client.LiveID),
 		zap.Uint64("userID", cfg.Client.UserID),
+		zap.String("userName", cfg.Client.UserName),
 		zap.String("mode", cfg.Client.Mode))
 
 	// 监听配置更新
@@ -116,19 +117,21 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := wsClient.CreateRoom(cfg.Client.LiveID, cfg.Client.UserID)
+			err := wsClient.CreateRoom(cfg.Client.LiveID, cfg.Client.UserID, cfg.Client.UserName)
 			if err != nil {
 				logger.Error("Failed to create room", zap.Error(err))
 				os.Exit(1)
 			}
 			logger.Info("Room created successfully",
 				zap.Uint64("liveID", cfg.Client.LiveID),
-				zap.Uint64("userID", cfg.Client.UserID))
+				zap.Uint64("userID", cfg.Client.UserID),
+				zap.String("userName", cfg.Client.UserName),
+			)
 		}()
 	} else if cfg.Client.Mode == "send" {
 		// 检查房间是否存在
 		logger.Info("Checking room existence...", zap.Uint64("liveID", cfg.Client.LiveID))
-		err := wsClient.CheckRoom(cfg.Client.LiveID, cfg.Client.UserID)
+		err := wsClient.CheckRoom(cfg.Client.LiveID, cfg.Client.UserID, cfg.Client.UserName)
 		if err != nil {
 			logger.Error("Room check failed", zap.Error(err))
 			cancel()

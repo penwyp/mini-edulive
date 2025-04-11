@@ -21,8 +21,9 @@ type QuicClient struct {
 	cfg       *config.Config
 	conn      quic.Connection
 	stream    quic.Stream
-	userID    uint64
 	liveID    uint64
+	userID    uint64
+	userName  string
 	mutex     sync.RWMutex // 保护连接状态
 	isClosed  bool
 	tlsConfig *tls.Config
@@ -59,6 +60,7 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 		conn:      conn,
 		stream:    stream,
 		userID:    cfg.Client.UserID,
+		userName:  cfg.Client.UserName,
 		liveID:    cfg.Client.LiveID,
 		isClosed:  false,
 		tlsConfig: tlsConfig,
@@ -75,6 +77,7 @@ func NewQuicClient(cfg *config.Config) (*QuicClient, error) {
 	logger.Info("QUIC client initialized",
 		zap.String("addr", cfg.Distributor.QUIC.Addr),
 		zap.Uint64("userID", client.userID),
+		zap.String("userName", client.userName),
 		zap.Uint64("liveID", client.liveID))
 
 	return client, nil
@@ -119,6 +122,7 @@ func (c *QuicClient) sendInitMessage() error {
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     c.userID,
 		LiveID:     c.liveID,
+		Username:   c.userName,
 		ContentLen: 0,
 		Content:    "",
 	}
@@ -134,8 +138,10 @@ func (c *QuicClient) sendInitMessage() error {
 	}
 
 	logger.Debug("QUIC init message sent",
+		zap.Uint64("liveID", c.liveID),
 		zap.Uint64("userID", c.userID),
-		zap.Uint64("liveID", c.liveID))
+		zap.String("userName", c.userName))
+
 	return nil
 }
 
@@ -179,13 +185,15 @@ func (c *QuicClient) Receive(ctx context.Context) error {
 
 			if msg.Type == protocol.TypeBullet {
 				logger.Info("Received bullet",
-					zap.Uint64("userID", msg.UserID),
 					zap.Uint64("liveID", msg.LiveID),
+					zap.Uint64("userID", msg.UserID),
+					zap.String("userName", c.userName),
 					zap.String("content", msg.Content))
 			} else {
 				logger.Debug("Received non-bullet message",
 					zap.Uint8("type", msg.Type),
-					zap.Uint64("userID", msg.UserID))
+					zap.Uint64("userID", msg.UserID),
+					zap.String("userName", c.userName))
 			}
 		}
 	}
@@ -212,5 +220,6 @@ func (c *QuicClient) Close() {
 
 	logger.Info("QUIC connection closed",
 		zap.Uint64("userID", c.userID),
+		zap.String("userName", c.userName),
 		zap.Uint64("liveID", c.liveID))
 }
