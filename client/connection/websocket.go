@@ -66,7 +66,7 @@ func (c *Client) StartHeartbeat(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("Heartbeat stopped due to context cancellation")
+			logger.Debug("Heartbeat stopped due to context cancellation")
 			return nil
 		case <-ticker.C:
 			if err := c.sendHeartbeat(); err != nil {
@@ -131,7 +131,7 @@ func (c *Client) SendBullet(content string) error {
 		return fmt.Errorf("write bullet failed: %w", err)
 	}
 
-	logger.Info("Bullet sent",
+	logger.Debug("Bullet sent",
 		zap.Uint64("userID", c.userID),
 		zap.String("userName", c.userName),
 		zap.Uint64("liveID", c.liveID),
