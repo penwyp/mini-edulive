@@ -45,6 +45,15 @@ type SerializedBullet struct {
 	Color     string `json:"color"` // 支持彩色显示
 }
 
+func (b SerializedBullet) Reset() {
+	b.Timestamp = 0
+	b.UserID = 0
+	b.LiveID = 0
+	b.UserName = ""
+	b.Content = ""
+	b.Color = ""
+}
+
 // BulletMessage 定义二进制协议结构体
 type BulletMessage struct {
 	Magic     uint16 // 魔数

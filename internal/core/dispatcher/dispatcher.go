@@ -23,9 +23,14 @@ import (
 )
 
 // BulletMessage 切片的池，初始容量为 100
-var bulletSlicePool = pool.RegisterPool("bullet_slice", func() []*protocol.BulletMessage {
-	return make([]*protocol.BulletMessage, 0, 100)
-})
+var (
+	bulletSlicePool = pool.RegisterPool("bullet_slice", func() []*protocol.BulletMessage {
+		return make([]*protocol.BulletMessage, 0, 100)
+	})
+	serializedBulletPool = pool.RegisterPool("serialized_bullet", func() *protocol.SerializedBullet {
+		return &protocol.SerializedBullet{}
+	})
+)
 
 type Dispatcher struct {
 	config       *config.Config
@@ -278,8 +283,12 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 			continue
 		}
 
+		// 从池中获取 SerializedBullet
+		serializedBullet := serializedBulletPool.Get()
+		serializedBullet.Reset()
+		defer serializedBulletPool.Put(serializedBullet)
+
 		// 反序列化 JSON 数据
-		var serializedBullet protocol.SerializedBullet
 		if err := json.Unmarshal([]byte(serializedContent), &serializedBullet); err != nil {
 			logger.Warn("Failed to unmarshal serialized bullet",
 				zap.String("serialized_content", serializedContent),
