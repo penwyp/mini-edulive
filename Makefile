@@ -35,7 +35,7 @@ deps:
 
 # 编译项目并将二进制放入 bin 目录
 .PHONY: build
-build: deps build-gateway build-client build-worker build-dispatcher
+build: deps protocol build-gateway build-client build-worker build-dispatcher
 
 .PHONY: build-gateway
 build-gateway: deps
