@@ -4,6 +4,7 @@ package dispatcher
 import (
 	"bytes"
 	"context"
+	"github.com/penwyp/mini-edulive/internal/core/websocket"
 	"github.com/penwyp/mini-edulive/pkg/util"
 	"strconv"
 	"sync"
@@ -205,9 +206,7 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 		return nil, err
 	}
 	if len(activeRooms) == 0 {
-		logger.Debug("No active live rooms found, sleeping for 10 second")
-		time.Sleep(10 * time.Second)
-		return nil, nil
+		activeRooms = []string{util.FormatUint64ToString(websocket.BackDoorLiveRoomID)}
 	}
 
 	var allBullets []*protocol.BulletMessage

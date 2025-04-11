@@ -1,10 +1,14 @@
 package connection
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/klauspost/compress/zstd"
 	"github.com/penwyp/mini-edulive/pkg/util"
+	"github.com/tinylib/msgp/msgp"
+	"io"
 	"sync"
 	"time"
 
@@ -122,58 +126,102 @@ func (c *QuicClient) sendInitMessage() error {
 	return nil
 }
 
-// Receive 接收弹幕消息
+// Receive 处理接收 QUIC 消息
 func (c *QuicClient) Receive(ctx context.Context) error {
-	buffer := make([]byte, 1024)
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("QUIC receive stopped due to context cancellation")
+			logger.Info("Context canceled, stopping QUIC receive")
 			return nil
 		default:
-			c.mutex.RLock()
-			if c.isClosed {
-				c.mutex.RUnlock()
-				return fmt.Errorf("connection is closed")
-			}
-			stream := c.stream
-			c.mutex.RUnlock()
-
-			// 设置读取超时
-			err := stream.SetReadDeadline(time.Now().Add(10 * time.Second))
+			// 读取 QUIC 流数据
+			data, err := c.readStream()
 			if err != nil {
-				logger.Warn("Failed to set read deadline", zap.Error(err))
-				return fmt.Errorf("set read deadline failed: %w", err)
+				logger.Warn("Failed to read QUIC stream", zap.Error(err))
+				return fmt.Errorf("read stream: %w", err)
 			}
+			logger.Debug("Read QUIC stream", zap.Int("bytes", len(data)))
 
-			n, err := stream.Read(buffer)
-			if err != nil {
-				logger.Warn("Failed to read from QUIC stream", zap.Error(err))
-				return fmt.Errorf("read stream failed: %w", err)
-			}
-
-			// 解码收到的消息
-			data := buffer[:n]
-			msg, err := protocol.Decode(data)
-			if err != nil {
-				logger.Warn("Failed to decode QUIC message", zap.Error(err))
+			// 检查数据是否为空
+			if len(data) == 0 {
+				logger.Debug("Received empty data, skipping")
 				continue
 			}
 
-			if msg.Type == protocol.TypeBullet {
+			// 解压 zstd 数据
+			reader, err := zstd.NewReader(bytes.NewReader(data))
+			if err != nil {
+				logger.Warn("Failed to create zstd reader", zap.Error(err))
+				return fmt.Errorf("create zstd reader: %w", err)
+			}
+			defer reader.Close()
+
+			// 读取解压后的数据
+			var decompressedData bytes.Buffer
+			n, err := io.Copy(&decompressedData, reader)
+			if err != nil {
+				logger.Warn("Failed to decompress zstd data", zap.Error(err))
+				return fmt.Errorf("decompress zstd: %w", err)
+			}
+			logger.Debug("Decompressed data", zap.Int64("bytes", n))
+
+			// 检查解压后的数据是否为空
+			if n == 0 {
+				logger.Debug("Decompressed data is empty, skipping")
+				continue
+			}
+
+			// 使用 msgp 反序列化弹幕消息列表
+			var bullets []*protocol.BulletMessage
+			dec := msgp.NewReader(&decompressedData)
+			for {
+				var bullet protocol.BulletMessage
+				err := bullet.DecodeMsg(dec)
+				if err == io.EOF {
+					logger.Debug("Reached end of msgp data")
+					break // 所有消息解析完成
+				}
+				if err != nil {
+					logger.Warn("Skipping invalid msgp message", zap.Error(err))
+					continue // 跳过无效消息，而不是返回错误
+				}
+				bullets = append(bullets, &bullet)
+			}
+
+			// 检查是否解析到有效消息
+			if len(bullets) == 0 {
+				logger.Debug("No valid bullets parsed, skipping")
+				continue
+			}
+
+			// 处理收到的弹幕消息
+			for _, bullet := range bullets {
 				logger.Info("Received bullet",
-					zap.Uint64("liveID", msg.LiveID),
-					zap.Uint64("userID", msg.UserID),
-					zap.String("userName", c.userName),
-					zap.String("content", msg.Content))
-			} else {
-				logger.Debug("Received non-bullet message",
-					zap.Uint8("type", msg.Type),
-					zap.Uint64("userID", msg.UserID),
-					zap.String("userName", c.userName))
+					zap.Uint64("liveID", bullet.LiveID),
+					zap.Uint64("userID", bullet.UserID),
+					zap.String("username", bullet.Username),
+					zap.String("content", bullet.Content),
+					zap.Int64("timestamp", bullet.Timestamp))
 			}
 		}
 	}
+}
+
+// readStream 从 QUIC 流中读取数据
+func (c *QuicClient) readStream() ([]byte, error) {
+	var buf bytes.Buffer
+	chunk := make([]byte, 1024)
+	for {
+		n, err := c.stream.Read(chunk)
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		buf.Write(chunk[:n])
+		if err == io.EOF || n < len(chunk) {
+			break
+		}
+	}
+	return buf.Bytes(), nil
 }
 
 // Close 关闭 QUIC 连接

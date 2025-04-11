@@ -122,7 +122,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.Uint64("userID", msg.UserID),
 				zap.String("userName", msg.Username))
 
-			if s.isLiveRoomExists(r.Context(), msg.LiveID) {
+			if _, isBackdoor := s.isLiveRoomExists(r.Context(), msg.LiveID); !isBackdoor {
 				resp := &protocol.BulletMessage{
 					Magic:      protocol.MagicNumber,
 					Version:    protocol.CurrentVersion,
@@ -172,7 +172,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				zap.Uint64("userID", msg.UserID),
 				zap.String("userName", msg.Username))
 
-			exists := s.isLiveRoomExists(r.Context(), msg.LiveID)
+			exists, _ := s.isLiveRoomExists(r.Context(), msg.LiveID)
 			content := "exists"
 			if !exists {
 				content = "not exists"
@@ -206,18 +206,18 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) isLiveRoomExists(ctx context.Context, liveID uint64) bool {
+func (s *Server) isLiveRoomExists(ctx context.Context, liveID uint64) (bool, bool) {
 	if BackDoorLiveRoomID == liveID {
-		return true
+		return true, true
 	}
 
 	key := s.keyBuilder.ActiveLiveRoomsKey()
 	exists, err := s.redisClient.SIsMember(ctx, key, liveID).Result()
 	if err != nil {
 		logger.Error("Failed to check live room existence", zap.Uint64("liveID", liveID), zap.Error(err))
-		return true // 默认假设存在以避免误操作
+		return true, false
 	}
-	return exists
+	return exists, false
 }
 
 func (s *Server) registerLiveRoom(ctx context.Context, liveID uint64) error {

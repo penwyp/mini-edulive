@@ -63,7 +63,7 @@ run-gateway: build-gateway
 	@rm -f logs/edulive_gateway.log  # 清理日志文件
 	$(BIN_DIR)/$(GATEWAY_BINARY_NAME)
 
-.PHONY: run-client
+.PHONY: run-client quic
 run-client: build-client
 	@rm -f logs/edulive_client.log  # 清理日志文件
 	$(BIN_DIR)/$(CLIENT_BINARY_NAME)
@@ -73,7 +73,7 @@ run-worker: build-worker
 	@rm -f logs/edulive_worker.log  # Cleanup log file
 	$(BIN_DIR)/$(WORKER_BINARY_NAME)
 
-.PHONY: run-dispatcher
+.PHONY: run-dispatcher quic
 run-dispatcher: build-dispatcher
 	@rm -f logs/edulive_dispatcher.log  # Cleanup log file
 	$(BIN_DIR)/$(DISPATCHER_BINARY_NAME)
@@ -250,6 +250,6 @@ quic:
 		echo "Certificates already exist and are not expired. Skipping generation."; \
 	else \
 		echo "Generating QUIC HTTPS certificates..."; \
-		openssl req -x509 -newkey rsa:4096 -keyout test/ssl/key.pem -out test/ssl/cert.pem -days 365 -nodes -config test/ssl/san.cnf || { echo "Failed to generate certificates"; exit 1; }; \
+		openssl req -x509 -newkey rsa:4096 -keyout test/ssl/key.pem -out test/ssl/cert.pem -days 9999 -nodes -config test/ssl/san.cnf || { echo "Failed to generate certificates"; exit 1; }; \
 		echo "Certificates generated: test/ssl/cert.pem, test/ssl/key.pem"; \
 	fi

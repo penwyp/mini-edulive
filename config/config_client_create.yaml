@@ -3,11 +3,11 @@ logger:
   filePath: logs/edulive_client.log
   level: info
 websocket:
-  endpoint: "ws://localhost:8483/bullet"
+  endpoint: "ws://127.0.0.1:8483/bullet"
 distributor:
   quic:
     enabled: true
-    addr: "localhost:8484"
+    addr: "127.0.0.1:8484"
     certFile: "test/ssl/cert.pem"
     keyFile: "test/ssl/key.pem"
 client:

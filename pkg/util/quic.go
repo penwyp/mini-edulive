@@ -12,7 +12,8 @@ func GenerateTLSConfig(certFile, keyFile string) *tls.Config {
 		logger.Panic("Failed to load TLS cert", zap.Error(err))
 	}
 	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		NextProtos:   []string{"quic-edulive"},
+		InsecureSkipVerify: true,
+		Certificates:       []tls.Certificate{cert},
+		NextProtos:         []string{"quic-edulive"},
 	}
 }
