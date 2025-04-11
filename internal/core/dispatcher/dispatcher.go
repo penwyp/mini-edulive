@@ -264,15 +264,15 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 
 		// 构造 BulletMessage
 		bullet := &protocol.BulletMessage{
-			Magic:      protocol.MagicNumber,
-			Version:    protocol.CurrentVersion,
-			Type:       protocol.TypeBullet,
-			Timestamp:  serializedBullet.Timestamp,
-			UserID:     serializedBullet.UserID,
-			LiveID:     serializedBullet.LiveID,
-			UserName:   serializedBullet.UserName,
-			ContentLen: uint16(len(serializedBullet.Content)),
-			Content:    serializedBullet.Content,
+			Magic:     protocol.MagicNumber,
+			Version:   protocol.CurrentVersion,
+			Type:      protocol.TypeBullet,
+			Timestamp: serializedBullet.Timestamp,
+			UserID:    serializedBullet.UserID,
+			LiveID:    serializedBullet.LiveID,
+			UserName:  serializedBullet.UserName,
+			Content:   serializedBullet.Content,
+			Color:     util.GetDefaultColorOrRandom(serializedBullet.Color),
 		}
 
 		allBullets = append(allBullets, bullet)
@@ -280,7 +280,9 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 			zap.Uint64("liveID", bullet.LiveID),
 			zap.Uint64("userID", bullet.UserID),
 			zap.String("username", bullet.UserName),
-			zap.String("content", bullet.Content))
+			zap.String("content", bullet.Content),
+			zap.String("color", bullet.Color),
+		)
 
 		if len(allBullets) >= 10000 {
 			break

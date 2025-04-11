@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
+	"github.com/fatih/color"
 	"github.com/penwyp/mini-edulive/pkg/util"
 	"io"
 	"sync"
@@ -96,15 +97,14 @@ func (c *QuicClient) sendInitMessage() error {
 
 	// 创建初始化消息（复用 BulletMessage，类型为 TypeBullet）
 	msg := &protocol.BulletMessage{
-		Magic:      protocol.MagicNumber,
-		Version:    protocol.CurrentVersion,
-		Type:       protocol.TypeBullet,
-		Timestamp:  time.Now().UnixMilli(),
-		UserID:     c.userID,
-		LiveID:     c.liveID,
-		UserName:   c.userName,
-		ContentLen: 0,
-		Content:    "",
+		Magic:     protocol.MagicNumber,
+		Version:   protocol.CurrentVersion,
+		Type:      protocol.TypeBullet,
+		Timestamp: time.Now().UnixMilli(),
+		UserID:    c.userID,
+		LiveID:    c.liveID,
+		UserName:  c.userName,
+		Content:   "",
 	}
 
 	data, err := msg.Encode()
@@ -175,12 +175,17 @@ func (c *QuicClient) Receive(ctx context.Context) error {
 					continue
 				}
 
-				logger.Info("Received bullet",
-					zap.Uint64("liveID", bullet.LiveID),
-					zap.Uint64("userID", bullet.UserID),
-					zap.String("username", bullet.UserName),
-					zap.String("content", bullet.Content),
-					zap.Int64("timestamp", bullet.Timestamp))
+				if bullet.Type == protocol.TypeBullet {
+					// 根据颜色字段选择彩色输出
+					colorFn := getColorFunc(bullet.Color)
+					colorFn("%s (%d): %s\n", bullet.UserName, bullet.UserID, bullet.Content)
+				}
+				//logger.Info("Received bullet",
+				//	zap.Uint64("liveID", bullet.LiveID),
+				//	zap.Uint64("userID", bullet.UserID),
+				//	zap.String("username", bullet.UserName),
+				//	zap.String("content", bullet.Content),
+				//	zap.Int64("timestamp", bullet.Timestamp))
 			}
 		}
 	}
@@ -242,4 +247,24 @@ func (c *QuicClient) Close() {
 		zap.Uint64("userID", c.userID),
 		zap.String("userName", c.userName),
 		zap.Uint64("liveID", c.liveID))
+}
+
+// getColorFunc 根据颜色字符串返回对应的彩色打印函数
+func getColorFunc(colorStr string) func(string, ...interface{}) (n int, err error) {
+	switch colorStr {
+	case "red":
+		return color.New(color.FgRed).Printf
+	case "green":
+		return color.New(color.FgGreen).Printf
+	case "blue":
+		return color.New(color.FgBlue).Printf
+	case "yellow":
+		return color.New(color.FgYellow).Printf
+	case "cyan":
+		return color.New(color.FgCyan).Printf
+	case "magenta":
+		return color.New(color.FgMagenta).Printf
+	default:
+		return color.New(color.FgWhite).Printf
+	}
 }

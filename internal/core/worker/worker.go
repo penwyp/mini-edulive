@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"github.com/penwyp/mini-edulive/pkg/util"
 	"sync"
 	"time"
 
@@ -83,6 +84,8 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 		zap.String("content", bullet.Content),
 		zap.Duration("decode_time", time.Since(startTime)))
 
+	bullet.Color = util.GetDefaultColorOrRandom(bullet.Color)
+
 	currentTime := time.Now().UnixMilli()
 	if currentTime-bullet.Timestamp > (3600 * 1000) {
 		logger.Warn("Discarding old message",
@@ -99,6 +102,7 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 	if len(bullet.Content) == 0 || len(bullet.Content) > 200 {
 		logger.Warn("Invalid content length",
 			zap.Uint64("userID", bullet.UserID),
+			zap.String("userName", bullet.UserName),
 			zap.Int("content_length", len(bullet.Content)))
 		return
 	}

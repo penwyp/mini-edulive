@@ -24,21 +24,22 @@ type SerializedBullet struct {
 	LiveID    uint64 `json:"live_id"`
 	UserName  string `json:"username"`
 	Content   string `json:"content"`
+	Color     string `json:"color"` // 支持彩色显示
 }
 
 // BulletMessage 定义二进制协议结构体
 //
 //msgp:tuple BulletMessage
 type BulletMessage struct {
-	Magic      uint16 `msgp:"magic"`       // 魔数
-	Version    uint8  `msgp:"version"`     // 版本号
-	Type       uint8  `msgp:"type"`        // 消息类型
-	Timestamp  int64  `msgp:"timestamp"`   // 时间戳
-	UserID     uint64 `msgp:"user_id"`     // 用户ID
-	LiveID     uint64 `msgp:"live_id"`     // 直播间ID
-	UserName   string `msgp:"username"`    // 用户名（新增）
-	ContentLen uint16 `msgp:"content_len"` // 内容长度
-	Content    string `msgp:"content"`     // 内容
+	Magic     uint16 `msgp:"magic"`     // 魔数
+	Version   uint8  `msgp:"version"`   // 版本号
+	Type      uint8  `msgp:"type"`      // 消息类型
+	Timestamp int64  `msgp:"timestamp"` // 时间戳
+	UserID    uint64 `msgp:"user_id"`   // 用户ID
+	LiveID    uint64 `msgp:"live_id"`   // 直播间ID
+	UserName  string `msgp:"username"`  // 用户名
+	Content   string `msgp:"content"`   // 内容
+	Color     string `msgp:"color"`     // 颜色
 }
 
 // Encode 将 BulletMessage 编码为二进制数据
@@ -75,11 +76,23 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 		return nil, err
 	}
 
-	// 写入 Content
-	if err := binary.Write(buf, binary.BigEndian, msg.ContentLen); err != nil {
+	// 写入 Content（变长字段，前缀长度 + 内容）
+	contentBytes := []byte(msg.Content)
+	contentLen := uint16(len(contentBytes))
+	if err := binary.Write(buf, binary.BigEndian, contentLen); err != nil {
 		return nil, err
 	}
-	if err := binary.Write(buf, binary.BigEndian, []byte(msg.Content)); err != nil {
+	if err := binary.Write(buf, binary.BigEndian, contentBytes); err != nil {
+		return nil, err
+	}
+
+	// 写入 Color（变长字段，前缀长度 + 内容）
+	colorBytes := []byte(msg.Color)
+	colorLen := uint16(len(colorBytes))
+	if err := binary.Write(buf, binary.BigEndian, colorLen); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.BigEndian, colorBytes); err != nil {
 		return nil, err
 	}
 
@@ -88,7 +101,7 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 
 // Decode 从二进制数据解码为 BulletMessage
 func Decode(data []byte) (*BulletMessage, error) {
-	if len(data) < 24 { // 最小长度：魔数(2) + 版本(1) + 类型(1) + 时间戳(8) + 用户ID(8) + 直播间ID(8) + 用户名长度(2)
+	if len(data) < 20 { // 最小长度：魔数(2) + 版本(1) + 类型(1) + 时间戳(8) + 用户ID(8) + 直播间ID(8)
 		return nil, errors.New("data too short")
 	}
 
@@ -137,7 +150,7 @@ func Decode(data []byte) (*BulletMessage, error) {
 		return nil, err
 	}
 
-	// 读取用户名长度和内容（新增）
+	// 读取用户名
 	var usernameLen uint16
 	if err := binary.Read(reader, binary.BigEndian, &usernameLen); err != nil {
 		return nil, err
@@ -148,71 +161,89 @@ func Decode(data []byte) (*BulletMessage, error) {
 	}
 	msg.UserName = string(usernameBytes)
 
-	// 读取内容长度和内容
-	if err := binary.Read(reader, binary.BigEndian, &msg.ContentLen); err != nil {
+	// 读取内容
+	var contentLen uint16
+	if err := binary.Read(reader, binary.BigEndian, &contentLen); err != nil {
 		return nil, err
 	}
-	content := make([]byte, msg.ContentLen)
-	if err := binary.Read(reader, binary.BigEndian, &content); err != nil {
+	contentBytes := make([]byte, contentLen)
+	if err := binary.Read(reader, binary.BigEndian, &contentBytes); err != nil {
 		return nil, err
 	}
-	msg.Content = string(content)
+	msg.Content = string(contentBytes)
+
+	// 读取颜色
+	var colorLen uint16
+	if err := binary.Read(reader, binary.BigEndian, &colorLen); err != nil {
+		return nil, err
+	}
+	colorBytes := make([]byte, colorLen)
+	if err := binary.Read(reader, binary.BigEndian, &colorBytes); err != nil {
+		return nil, err
+	}
+	msg.Color = string(colorBytes)
 
 	return msg, nil
 }
 
 // NewBulletMessage 创建弹幕消息
-func NewBulletMessage(liveID, userID uint64, username, content string) *BulletMessage {
+func NewBulletMessage(liveID, userID uint64, username, content, color string) *BulletMessage {
+	if color == "" {
+		color = "white" // 默认颜色
+	}
 	return &BulletMessage{
-		Magic:      MagicNumber,
-		Version:    CurrentVersion,
-		Type:       TypeBullet,
-		Timestamp:  time.Now().UnixMilli(),
-		UserID:     userID,
-		LiveID:     liveID,
-		UserName:   username,
-		ContentLen: uint16(len(content)),
-		Content:    content,
+		Magic:     MagicNumber,
+		Version:   CurrentVersion,
+		Type:      TypeBullet,
+		Timestamp: time.Now().UnixMilli(),
+		UserID:    userID,
+		LiveID:    liveID,
+		UserName:  username,
+		Content:   content,
+		Color:     color,
 	}
 }
 
 // NewHeartbeatMessage 创建心跳消息
 func NewHeartbeatMessage(userID uint64) *BulletMessage {
 	return &BulletMessage{
-		Magic:      MagicNumber,
-		Version:    CurrentVersion,
-		Type:       TypeHeartbeat,
-		Timestamp:  time.Now().UnixMilli(),
-		UserID:     userID,
-		ContentLen: 0,
-		Content:    "",
+		Magic:     MagicNumber,
+		Version:   CurrentVersion,
+		Type:      TypeHeartbeat,
+		Timestamp: time.Now().UnixMilli(),
+		UserID:    userID,
+		UserName:  "",
+		Content:   "",
+		Color:     "",
 	}
 }
 
 // NewCreateRoomMessage 创建直播间消息
 func NewCreateRoomMessage(liveID, userID uint64) *BulletMessage {
 	return &BulletMessage{
-		Magic:      MagicNumber,
-		Version:    CurrentVersion,
-		Type:       TypeCreateRoom,
-		Timestamp:  time.Now().UnixMilli(),
-		UserID:     userID,
-		LiveID:     liveID,
-		ContentLen: 0,
-		Content:    "",
+		Magic:     MagicNumber,
+		Version:   CurrentVersion,
+		Type:      TypeCreateRoom,
+		Timestamp: time.Now().UnixMilli(),
+		UserID:    userID,
+		LiveID:    liveID,
+		UserName:  "",
+		Content:   "",
+		Color:     "",
 	}
 }
 
 // NewCheckRoomMessage 创建检查房间消息
 func NewCheckRoomMessage(liveID, userID uint64) *BulletMessage {
 	return &BulletMessage{
-		Magic:      MagicNumber,
-		Version:    CurrentVersion,
-		Type:       TypeCheckRoom,
-		Timestamp:  time.Now().UnixMilli(),
-		UserID:     userID,
-		LiveID:     liveID,
-		ContentLen: 0,
-		Content:    "",
+		Magic:     MagicNumber,
+		Version:   CurrentVersion,
+		Type:      TypeCheckRoom,
+		Timestamp: time.Now().UnixMilli(),
+		UserID:    userID,
+		LiveID:    liveID,
+		UserName:  "",
+		Content:   "",
+		Color:     "",
 	}
 }

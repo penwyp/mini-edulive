@@ -123,14 +123,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			if exist, isBackdoor := s.isLiveRoomExists(r.Context(), msg.LiveID); exist && !isBackdoor {
 				resp := &protocol.BulletMessage{
-					Magic:      protocol.MagicNumber,
-					Version:    protocol.CurrentVersion,
-					Type:       protocol.TypeCreateRoom,
-					Timestamp:  time.Now().UnixMilli(),
-					UserID:     msg.UserID,
-					LiveID:     msg.LiveID,
-					ContentLen: uint16(len("Live room already exists")),
-					Content:    "Live room already exists",
+					Magic:     protocol.MagicNumber,
+					Version:   protocol.CurrentVersion,
+					Type:      protocol.TypeCreateRoom,
+					Timestamp: time.Now().UnixMilli(),
+					UserID:    msg.UserID,
+					LiveID:    msg.LiveID,
+					Content:   "Live room already exists",
 				}
 				respData, err := resp.Encode()
 				if err != nil {
@@ -177,14 +176,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				content = "not exists"
 			}
 			resp := &protocol.BulletMessage{
-				Magic:      protocol.MagicNumber,
-				Version:    protocol.CurrentVersion,
-				Type:       protocol.TypeCheckRoom,
-				Timestamp:  time.Now().UnixMilli(),
-				UserID:     msg.UserID,
-				LiveID:     msg.LiveID,
-				ContentLen: uint16(len(content)),
-				Content:    content,
+				Magic:     protocol.MagicNumber,
+				Version:   protocol.CurrentVersion,
+				Type:      protocol.TypeCheckRoom,
+				Timestamp: time.Now().UnixMilli(),
+				UserID:    msg.UserID,
+				LiveID:    msg.LiveID,
+				Content:   content,
 			}
 			respData, err := resp.Encode()
 			if err != nil {

@@ -108,7 +108,6 @@ func (c *Client) sendHeartbeat() error {
 }
 
 // SendBullet 发送弹幕消息
-// SendBullet 发送弹幕消息
 func (c *Client) SendBullet(content string) error {
 	c.mutex.RLock()
 	if c.isClosed {
@@ -118,7 +117,7 @@ func (c *Client) SendBullet(content string) error {
 	conn := c.conn
 	c.mutex.RUnlock()
 
-	msg := protocol.NewBulletMessage(c.liveID, c.userID, c.userName, content)
+	msg := protocol.NewBulletMessage(c.liveID, c.userID, c.userName, content, "green")
 	data, err := msg.Encode()
 	if err != nil {
 		return fmt.Errorf("encode bullet failed: %w", err)

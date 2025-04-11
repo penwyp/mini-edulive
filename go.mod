@@ -4,6 +4,7 @@ go 1.24.1
 
 require (
 	github.com/coder/websocket v1.8.13
+	github.com/fatih/color v1.14.1
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/klauspost/compress v1.17.2
 	github.com/quic-go/quic-go v0.50.1
@@ -27,6 +28,8 @@ require (
 	github.com/google/pprof v0.0.0-20210407192527-94a9f03dee38 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
