@@ -79,7 +79,7 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 	logger.Debug("Message decoded",
 		zap.Uint64("liveID", bullet.LiveID),
 		zap.Uint64("userID", bullet.UserID),
-		zap.String("userName", bullet.Username),
+		zap.String("userName", bullet.UserName),
 		zap.String("content", bullet.Content),
 		zap.Duration("decode_time", time.Since(startTime)))
 
@@ -89,7 +89,7 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 			zap.Int64("timestamp", bullet.Timestamp),
 			zap.Int64("current_time", currentTime),
 			zap.Uint64("userID", bullet.UserID),
-			zap.String("userName", bullet.Username))
+			zap.String("userName", bullet.UserName))
 		return
 	}
 	logger.Debug("Timestamp validated",
@@ -105,21 +105,21 @@ func (w *Worker) processMessage(ctx context.Context, msg kafka.Message) {
 	logger.Debug("Content length validated",
 		zap.Int("content_length", len(bullet.Content)))
 
-	if !w.rateLimit(ctx, bullet.UserID, bullet.Username) {
+	if !w.rateLimit(ctx, bullet.UserID, bullet.UserName) {
 		logger.Warn("Rate limit exceeded",
 			zap.Uint64("userID", bullet.UserID),
-			zap.String("userName", bullet.Username))
+			zap.String("userName", bullet.UserName))
 		return
 	}
 	logger.Debug("Rate limit passed",
 		zap.Uint64("userID", bullet.UserID),
-		zap.String("userName", bullet.Username))
+		zap.String("userName", bullet.UserName))
 
 	w.storeMessage(ctx, bullet)
 	logger.Debug("Message processing completed",
 		zap.Uint64("liveID", bullet.LiveID),
 		zap.Uint64("userID", bullet.UserID),
-		zap.String("userName", bullet.Username),
+		zap.String("userName", bullet.UserName),
 		zap.Duration("total_processing_time", time.Since(startTime)))
 }
 
@@ -162,7 +162,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 		Timestamp: msg.Timestamp,
 		UserID:    msg.UserID,
 		LiveID:    msg.LiveID,
-		Username:  msg.Username,
+		UserName:  msg.UserName,
 		Content:   msg.Content,
 	}
 
@@ -190,7 +190,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 		logger.Error("Failed to store message in Redis",
 			zap.Uint64("liveID", msg.LiveID),
 			zap.Uint64("userID", msg.UserID),
-			zap.String("userName", msg.Username),
+			zap.String("userName", msg.UserName),
 			zap.Error(err))
 		return
 	}
@@ -202,7 +202,7 @@ func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) 
 	logger.Info("Message stored",
 		zap.Uint64("liveID", msg.LiveID),
 		zap.Uint64("userID", msg.UserID),
-		zap.String("userName", msg.Username),
+		zap.String("userName", msg.UserName),
 		zap.String("content", msg.Content),
 		zap.String("serialized_data", string(serializedData)))
 }

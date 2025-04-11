@@ -114,14 +114,14 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 	d.clients[msg.UserID] = &ClientInfo{
 		Stream:   stream,
 		LiveID:   msg.LiveID,
-		UserName: msg.Username,
+		UserName: msg.UserName,
 	}
 	d.mutex.Unlock()
 
 	logger.Info("New client connected",
 		zap.Uint64("liveID", msg.LiveID),
 		zap.Uint64("userID", msg.UserID),
-		zap.String("userName", msg.Username))
+		zap.String("userName", msg.UserName))
 
 	// 保持流活跃，直到连接关闭
 	for {
@@ -129,7 +129,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 		if err != nil {
 			logger.Warn("Stream read error, removing client",
 				zap.Uint64("userID", msg.UserID),
-				zap.String("userName", msg.Username),
+				zap.String("userName", msg.UserName),
 				zap.Error(err))
 			d.removeClient(msg.UserID)
 			return
@@ -270,7 +270,7 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 			Timestamp:  serializedBullet.Timestamp,
 			UserID:     serializedBullet.UserID,
 			LiveID:     serializedBullet.LiveID,
-			Username:   serializedBullet.Username,
+			UserName:   serializedBullet.UserName,
 			ContentLen: uint16(len(serializedBullet.Content)),
 			Content:    serializedBullet.Content,
 		}
@@ -279,7 +279,7 @@ func (d *Dispatcher) fetchTopBullets(ctx context.Context) ([]*protocol.BulletMes
 		logger.Debug("Fetched and parsed bullet",
 			zap.Uint64("liveID", bullet.LiveID),
 			zap.Uint64("userID", bullet.UserID),
-			zap.String("username", bullet.Username),
+			zap.String("username", bullet.UserName),
 			zap.String("content", bullet.Content))
 
 		if len(allBullets) >= 10000 {

@@ -22,7 +22,7 @@ type SerializedBullet struct {
 	Timestamp int64  `json:"timestamp"`
 	UserID    uint64 `json:"user_id"`
 	LiveID    uint64 `json:"live_id"`
-	Username  string `json:"username"`
+	UserName  string `json:"username"`
 	Content   string `json:"content"`
 }
 
@@ -36,7 +36,7 @@ type BulletMessage struct {
 	Timestamp  int64  `msgp:"timestamp"`   // 时间戳
 	UserID     uint64 `msgp:"user_id"`     // 用户ID
 	LiveID     uint64 `msgp:"live_id"`     // 直播间ID
-	Username   string `msgp:"username"`    // 用户名（新增）
+	UserName   string `msgp:"username"`    // 用户名（新增）
 	ContentLen uint16 `msgp:"content_len"` // 内容长度
 	Content    string `msgp:"content"`     // 内容
 }
@@ -65,8 +65,8 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 		return nil, err
 	}
 
-	// 写入 Username（变长字段，前缀长度 + 内容）
-	usernameBytes := []byte(msg.Username)
+	// 写入 UserName（变长字段，前缀长度 + 内容）
+	usernameBytes := []byte(msg.UserName)
 	usernameLen := uint16(len(usernameBytes))
 	if err := binary.Write(buf, binary.BigEndian, usernameLen); err != nil {
 		return nil, err
@@ -146,7 +146,7 @@ func Decode(data []byte) (*BulletMessage, error) {
 	if err := binary.Read(reader, binary.BigEndian, &usernameBytes); err != nil {
 		return nil, err
 	}
-	msg.Username = string(usernameBytes)
+	msg.UserName = string(usernameBytes)
 
 	// 读取内容长度和内容
 	if err := binary.Read(reader, binary.BigEndian, &msg.ContentLen); err != nil {
@@ -170,7 +170,7 @@ func NewBulletMessage(liveID, userID uint64, username, content string) *BulletMe
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     userID,
 		LiveID:     liveID,
-		Username:   username,
+		UserName:   username,
 		ContentLen: uint16(len(content)),
 		Content:    content,
 	}

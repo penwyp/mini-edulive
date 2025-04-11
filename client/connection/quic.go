@@ -102,7 +102,7 @@ func (c *QuicClient) sendInitMessage() error {
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     c.userID,
 		LiveID:     c.liveID,
-		Username:   c.userName,
+		UserName:   c.userName,
 		ContentLen: 0,
 		Content:    "",
 	}
@@ -178,7 +178,7 @@ func (c *QuicClient) Receive(ctx context.Context) error {
 				logger.Info("Received bullet",
 					zap.Uint64("liveID", bullet.LiveID),
 					zap.Uint64("userID", bullet.UserID),
-					zap.String("username", bullet.Username),
+					zap.String("username", bullet.UserName),
 					zap.String("content", bullet.Content),
 					zap.Int64("timestamp", bullet.Timestamp))
 			}
