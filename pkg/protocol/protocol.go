@@ -93,7 +93,10 @@ func Decode(data []byte) (*BulletMessage, error) {
 	if err := binary.Read(reader, binary.BigEndian, &msg.Type); err != nil {
 		return nil, err
 	}
-	if msg.Type != TypeBullet && msg.Type != TypeHeartbeat {
+	if msg.Type != TypeBullet &&
+		msg.Type != TypeHeartbeat &&
+		msg.Type != TypeCreateRoom &&
+		msg.Type != TypeCheckRoom {
 		return nil, errors.New("invalid message type")
 	}
 

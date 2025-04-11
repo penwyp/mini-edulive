@@ -19,6 +19,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// BackDoorLiveRoomID 是一个特殊的直播间 ID，用于测试或调试目的
+const BackDoorLiveRoomID = 10000
+
 type Server struct {
 	pool        *ConnPool
 	config      *config.Config
@@ -194,6 +197,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) isLiveRoomExists(ctx context.Context, liveID uint64) bool {
+	if BackDoorLiveRoomID == liveID {
+		return true
+	}
+
 	key := s.keyBuilder.ActiveLiveRoomsKey()
 	exists, err := s.redisClient.SIsMember(ctx, key, liveID).Result()
 	if err != nil {
