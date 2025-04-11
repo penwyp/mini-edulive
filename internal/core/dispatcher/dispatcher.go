@@ -97,7 +97,7 @@ func (d *Dispatcher) Start(spanCtx context.Context) {
 	go d.acceptConnections(ctx)
 
 	d.wg.Add(1)
-	go d.pushBulletLoop(ctx)
+	go d.pushBulletLoop()
 
 	d.wg.Wait()
 }
@@ -120,13 +120,13 @@ func (d *Dispatcher) acceptConnections(spanCtx context.Context) {
 		observability.RecordLatency(ctx, "quic.Accept", time.Since(startTime))
 		span.End()
 
-		go d.handleConnection(ctx, conn)
+		go d.handleConnection(conn)
 	}
 }
 
-func (d *Dispatcher) handleConnection(spanCtx context.Context, conn quic.Connection) {
+func (d *Dispatcher) handleConnection(conn quic.Connection) {
 	// 创建 Span 追踪单个连接处理
-	ctx, span := observability.StartSpan(spanCtx, "dispatcher.handleConnection")
+	ctx, span := observability.StartSpan(context.Background(), "dispatcher.handleConnection")
 	defer span.End()
 
 	defer conn.CloseWithError(0, "connection closed")
@@ -192,14 +192,14 @@ func (d *Dispatcher) handleConnection(spanCtx context.Context, conn quic.Connect
 	}
 }
 
-func (d *Dispatcher) pushBulletLoop(spanCtx context.Context) {
+func (d *Dispatcher) pushBulletLoop() {
 	defer d.wg.Done()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		// 创建 Span 追踪单次弹幕推送循环
-		ctx, span := observability.StartSpan(spanCtx, "dispatcher.pushBulletLoop")
+		ctx, span := observability.StartSpan(context.Background(), "dispatcher.pushBulletLoop")
 		startTime := time.Now()
 
 		d.pushBullets(ctx)

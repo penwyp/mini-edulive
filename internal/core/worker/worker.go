@@ -69,7 +69,7 @@ func (w *Worker) Start(spanCtx context.Context) {
 				return
 			default:
 				// 创建子 Span 追踪单次消息消费
-				msgCtx, msgSpan := observability.StartSpan(ctx, "worker.consumeMessage")
+				msgCtx, msgSpan := observability.StartSpan(context.Background(), "worker.consumeMessage")
 				startTime := time.Now()
 
 				msg, err := w.kafkaReader.ReadMessage(msgCtx)
