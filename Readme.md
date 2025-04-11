@@ -49,6 +49,7 @@
 1. **实时弹幕流**：`edulive-client → edulive-gateway → Kafka → edulive-worker → Redis → edulive-dispatcher → edulive-client`
 2. **监控流**：各组件通过Prometheus Exporter暴露指标，OpenTelemetry实现全链路追踪。
 3. **配置流**：支持本地热更新文件或Admin API动态管理配置。
+4. **控制流**：edulive-client启动时需要跟edulive-gateway和edulive-dispatcher连接，一个是为了发送弹幕，一个是为了接收弹幕。
 
 ---
 
@@ -60,6 +61,17 @@
     - 使用连接池多路复用，提升连接上限。
     - 基于Protobuf的二进制协议，减少带宽占用。
     - 内置健康检查与限流（IP/User级别）。
+
+### 3.2 edulive-client
+- **职责** ：创建房间，发送弹幕，查看弹幕。
+- **关键点**：
+    - 使用QUIC协议，支持快速连接恢复。
+    - 内置心跳机制，保持连接活跃。
+    - 支持多房间弹幕接收，使用WebSocket连接池。
+    - 使用Protobuf序列化，减少数据传输量。
+    - 支持本地缓存Top10000弹幕，减少网络请求。
+    - 支持本地过滤敏感词，减少网络传输。
+    - 支持本地缓存排行榜，减少网络请求。
 
 ### 3.2 edulive-worker
 - **职责**：消费Kafka消息，进行协议解析、时间戳校验、内容过滤，存储至Redis并更新排行榜。

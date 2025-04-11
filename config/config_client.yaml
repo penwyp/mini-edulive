@@ -1,10 +1,15 @@
 type: client
 logger:
   filePath: logs/edulive_client.log
+  level: debug
 websocket:
   endpoint: "ws://localhost:8483/bullet"
+distributor:
+  quic:
+    enabled: true
+    addr: "localhost:8484"
 client:
-  liveId: 10000
-  userId: 20001
+  liveID: 10000
+  userID: 20001
   sendInterval: 100ms
   maxRetries: 3

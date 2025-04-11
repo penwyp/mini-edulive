@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+//go:generate msgp
 const (
 	MagicNumber    = 0xABCD
 	CurrentVersion = 0x01
@@ -15,18 +16,20 @@ const (
 )
 
 // BulletMessage 定义二进制协议结构体
+//
+//msgp:tuple BulletMessage
 type BulletMessage struct {
-	Magic      uint16 // 魔数，固定值 0xABCD
-	Version    uint8  // 版本号，当前为 0x01
-	Type       uint8  // 消息类型（0x01: 弹幕, 0x02: 心跳）
-	Timestamp  int64  // 时间戳（Unix 毫秒）
-	UserID     uint64 // 用户ID
-	LiveID     uint64 // 直播间ID
-	ContentLen uint16 // 内容长度
-	Content    string // 内容（UTF-8 编码）
+	Magic      uint16 `msgp:"magic"`
+	Version    uint8  `msgp:"version"`
+	Type       uint8  `msgp:"type"`
+	Timestamp  int64  `msgp:"timestamp"`
+	UserID     uint64 `msgp:"user_id"`
+	LiveID     uint64 `msgp:"live_id"`
+	ContentLen uint16 `msgp:"content_len"`
+	Content    string `msgp:"content"`
 }
 
-// Encode 将 BulletMessage 编码为二进制数据
+// Encode 将 BulletMessage 编码为二进制数据（Protobuf 格式）
 func (msg *BulletMessage) Encode() ([]byte, error) {
 	buf := new(bytes.Buffer)
 
@@ -59,7 +62,7 @@ func (msg *BulletMessage) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Decode 从二进制数据解码为 BulletMessage
+// Decode 从二进制数据解码为 BulletMessage（Protobuf 格式）
 func Decode(data []byte) (*BulletMessage, error) {
 	if len(data) < 22 { // 最小长度：魔数(2) + 版本(1) + 类型(1) + 时间戳(8) + 用户ID(8) + 内容长度(2)
 		return nil, errors.New("data too short")
@@ -123,14 +126,14 @@ func Decode(data []byte) (*BulletMessage, error) {
 }
 
 // NewBulletMessage 创建弹幕消息
-func NewBulletMessage(liveId, userID uint64, content string) *BulletMessage {
+func NewBulletMessage(liveID, userID uint64, content string) *BulletMessage {
 	return &BulletMessage{
 		Magic:      MagicNumber,
 		Version:    CurrentVersion,
 		Type:       TypeBullet,
 		Timestamp:  time.Now().UnixMilli(),
 		UserID:     userID,
-		LiveID:     liveId,
+		LiveID:     liveID,
 		ContentLen: uint16(len(content)),
 		Content:    content,
 	}

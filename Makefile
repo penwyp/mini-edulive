@@ -221,3 +221,11 @@ setup-monitoring:
 stop-test-env:
 	@docker-compose -f test/docker/docker-compose.yml down
 	@echo "外部依赖服务已停止"
+
+.PHONY: protocol
+protocol:
+	@echo "Installing msgp tool..."
+	@$(GO) install github.com/tinylib/msgp@latest || { echo "Failed to install msgp"; exit 1; }
+	@echo "Running go generate for ./pkg/protocol..."
+	@$(GO) generate ./pkg/protocol || { echo "Failed to run go generate"; exit 1; }
+	@echo "Protocol code generation completed."

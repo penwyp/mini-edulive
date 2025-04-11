@@ -18,7 +18,7 @@ redis:
 distributor:
   quic:
     enabled: true
-    addr: "127.0.0.1:443"
+    addr: "127.0.0.1:8484"
 observability:
   prometheus:
     enabled: true

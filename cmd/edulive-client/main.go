@@ -2,6 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
 	"github.com/penwyp/mini-edulive/client/connection"
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/pkg/logger"
@@ -9,14 +16,24 @@ import (
 )
 
 func main() {
+	// 初始化配置
 	configMgr := config.InitConfig("config/config_client.yaml")
 	cfg := configMgr.GetConfig()
 
+	// 初始化日志
+	logger.Init(config.Logger{
+		Level:      cfg.Logger.Level,
+		FilePath:   cfg.Logger.FilePath,
+		MaxSize:    cfg.Logger.MaxSize,
+		MaxBackups: cfg.Logger.MaxBackups,
+		MaxAge:     cfg.Logger.MaxAge,
+		Compress:   cfg.Logger.Compress,
+	})
 	logger.Info("Starting edulive client",
-		zap.String("port", cfg.App.Port),
-		zap.Bool("websocket_enabled", cfg.WebSocket.Enabled),
-		zap.Strings("kafka_brokers", cfg.Kafka.Brokers),
-	)
+		zap.String("websocket_endpoint", cfg.WebSocket.Endpoint),
+		zap.String("quic_addr", cfg.Distributor.QUIC.Addr),
+		zap.Uint64("liveID", cfg.Client.LiveID),
+		zap.Uint64("userID", cfg.Client.UserID))
 
 	// 监听配置变更
 	go func() {
@@ -25,18 +42,66 @@ func main() {
 		}
 	}()
 
-	// 启动系统
-	client, err := connection.NewClient(configMgr.GetConfig())
+	// 创建 WebSocket 客户端（发送弹幕）
+	wsClient, err := connection.NewClient(cfg)
 	if err != nil {
 		logger.Panic("Failed to create WebSocket client", zap.Error(err))
 	}
-	defer client.Close()
+	defer wsClient.Close()
 
-	go client.StartHeartbeat()
-	go client.Receive(context.Background())
-
-	if err := client.SendBullet("Hello, world!"); err != nil {
-		panic(err)
+	// 创建 QUIC 客户端（接收弹幕）
+	quicClient, err := connection.NewQuicClient(cfg)
+	if err != nil {
+		logger.Panic("Failed to create QUIC client", zap.Error(err))
 	}
-	select {}
+	defer quicClient.Close()
+
+	// 启动心跳和接收线程
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+
+	// 启动 WebSocket 心跳
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		wsClient.StartHeartbeat(ctx)
+	}()
+
+	// 启动 QUIC 接收
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		quicClient.Receive(ctx)
+	}()
+
+	// 模拟发送弹幕
+	go func() {
+		ticker := time.NewTicker(cfg.Client.SendInterval)
+		defer ticker.Stop()
+		count := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				count++
+				content := fmt.Sprintf("Bullet %d from user %d", count, cfg.Client.UserID)
+				if err := wsClient.SendBullet(content); err != nil {
+					logger.Warn("Failed to send bullet", zap.Error(err))
+				}
+			}
+		}
+	}()
+
+	// 等待终止信号
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+	logger.Info("Shutdown signal received, stopping client...")
+
+	// 清理
+	cancel()
+	wg.Wait()
+	logger.Sync()
+	logger.Info("Client stopped gracefully")
 }

@@ -311,7 +311,7 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("redis.db", 0)
 
 	v.SetDefault("distributor.quic.enabled", true)
-	v.SetDefault("distributor.quic.addr", "localhost:443")
+	v.SetDefault("distributor.quic.addr", "localhost:8484")
 	v.SetDefault("distributor.cdn.enabled", false)
 	v.SetDefault("distributor.cdn.endpoint", "cdn.example.com")
 
@@ -489,7 +489,7 @@ func InitTestConfigManager() {
 			Distributor: Distributor{
 				QUIC: QUIC{
 					Enabled: true,
-					Addr:    "localhost:443",
+					Addr:    "localhost:8484",
 				},
 			},
 			Observability: Observability{
