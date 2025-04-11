@@ -322,8 +322,8 @@ func setDefaultValues(v *viper.Viper) {
 	v.SetDefault("observability.prometheus.path", "/metrics")
 	v.SetDefault("observability.prometheus.httpEndpoint", "127.0.0.1:9090")
 	v.SetDefault("observability.jaeger.enabled", false)
-	v.SetDefault("observability.jaeger.endpoint", "127.0.0.1:6831")
-	v.SetDefault("observability.jaeger.httpEndpoint", "127.0.0.1:14268")
+	v.SetDefault("observability.jaeger.endpoint", "127.0.0.1:8430")
+	v.SetDefault("observability.jaeger.httpEndpoint", "127.0.0.1:8431")
 	v.SetDefault("observability.jaeger.sampler", "always")
 	v.SetDefault("observability.jaeger.sampleRatio", 1.0)
 

@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/penwyp/mini-edulive/config"
 	"github.com/penwyp/mini-edulive/internal/core/dispatcher"
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -26,6 +27,8 @@ func main() {
 		zap.Strings("redis_addrs", cfg.Redis.Addrs),
 		zap.String("quic_addr", cfg.Distributor.QUIC.Addr),
 	)
+
+	observability.InitTracing(cfg)
 
 	// 监听配置变更
 	go func() {

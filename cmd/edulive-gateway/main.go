@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/penwyp/mini-edulive/config"
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"github.com/penwyp/mini-edulive/internal/core/websocket"
 	"github.com/penwyp/mini-edulive/pkg/logger"
 	"go.uber.org/zap"
@@ -23,6 +24,8 @@ func main() {
 			logger.Info("Configuration updated", zap.Any("new_config", newCfg))
 		}
 	}()
+
+	observability.InitTracing(cfg)
 
 	// 启动系统
 	gateway := websocket.NewServer(configMgr.GetConfig())

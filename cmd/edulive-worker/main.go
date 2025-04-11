@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/penwyp/mini-edulive/internal/core/observability"
 	"os"
 	"os/signal"
 	"sync"
@@ -36,6 +37,8 @@ func main() {
 		zap.String("kafka_topic", cfg.Kafka.Topic),
 		zap.String("redis_addrs", fmt.Sprintf("%v", cfg.Redis.Addrs)),
 	)
+
+	observability.InitTracing(cfg)
 
 	// Check Kafka topic message count before starting worker
 	checkKafkaMessageCount(cfg)
