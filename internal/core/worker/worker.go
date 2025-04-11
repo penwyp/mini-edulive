@@ -157,6 +157,7 @@ func (w *Worker) rateLimit(ctx context.Context, userID uint64, userName string) 
 		zap.Duration("execution_time", time.Since(startTime)))
 	return result == 1
 }
+
 func (w *Worker) storeMessage(ctx context.Context, msg *protocol.BulletMessage) {
 	startTime := time.Now()
 	pipe := w.redisClient.Pipeline()

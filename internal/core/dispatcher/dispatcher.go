@@ -139,7 +139,7 @@ func (d *Dispatcher) handleConnection(conn quic.Connection) {
 
 func (d *Dispatcher) pushBulletLoop() {
 	defer d.wg.Done()
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
