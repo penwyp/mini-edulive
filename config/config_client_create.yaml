@@ -1,0 +1,34 @@
+type: client
+logger:
+  filePath: logs/edulive_client.log
+  level: info
+websocket:
+  endpoint: "ws://127.0.0.1:8483/bullet"
+distributor:
+  quic:
+    enabled: true
+    addr: "127.0.0.1:8484"
+    certFile: "test/ssl/cert.pem"
+    keyFile: "test/ssl/key.pem"
+observability:
+  prometheus:
+    enabled: true
+    path: "/metrics"
+    remoteWrite: "http://127.0.0.1:8490/api/v1/write"
+  jaeger:
+    enabled: true
+    uiendpoint: 127.0.0.1:8430
+    httpEndpoint: 127.0.0.1:8431
+    sampler: always
+    sampleratio: 1
+client:
+  liveID: 11000
+  userID: 20003
+  userName: "GreenRabbit-03"
+  sendInterval: 500ms
+  maxRetries: 3
+  mode: "create"  # 客户端模式：send（发送弹幕）或 create（创建直播间）
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

@@ -1,0 +1,38 @@
+type: gateway
+app:
+  port: "8483"
+logger:
+  level: debug
+  filepath: logs/edulive_gateway.log
+websocket:
+  enabled: true
+  max_conns: 1000000
+  idle_timeout: 5m
+kafka:
+  brokers:
+    - "10.2.103.35:9092"
+  topic: "bullet_topic"
+  balancer: "hash"
+redis:
+  addr: "127.0.0.1:6379"
+  password: "redis123"
+  db: 0
+distributor:
+  quic:
+    enabled: true
+    addr: "127.0.0.1:8484"
+observability:
+  prometheus:
+    enabled: true
+    path: "/metrics"
+    port: 8320
+  jaeger:
+    enabled: true
+    uiendpoint: 127.0.0.1:8430
+    httpEndpoint: 127.0.0.1:8431
+    sampler: always
+    sampleratio: 1
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

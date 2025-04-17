@@ -1,0 +1,33 @@
+type: worker
+app:
+  port: "8484"  # Optional, if worker exposes metrics endpoint
+logger:
+  level: info
+  filePath: logs/edulive_worker.log
+kafka:
+  brokers:
+    - "10.2.103.35:9092"
+  topic: "bullet_topic"
+  groupID: "worker-group"  # Consumer group for load balancing
+redis:
+  addrs:
+    - "127.0.0.1:8479"
+    - "127.0.0.1:8480"
+    - "127.0.0.1:8481"
+  password: "redis123"
+  db: 0
+observability:
+  prometheus:
+    enabled: true
+    path: "/metrics"
+    port: 8322
+  jaeger:
+    enabled: true
+    uiendpoint: 127.0.0.1:8430
+    httpEndpoint: 127.0.0.1:8431
+    sampler: always
+    sampleratio: 1
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

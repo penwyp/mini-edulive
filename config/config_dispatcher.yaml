@@ -1,0 +1,38 @@
+type: dispatcher
+app:
+  port: "8485"  # 用于暴露 Prometheus 指标等
+logger:
+  level: debug
+  filePath: logs/edulive_dispatcher.log
+  maxSize: 100
+  maxBackups: 10
+  maxAge: 30
+  compress: true
+redis:
+  addrs:
+    - "127.0.0.1:8479"
+    - "127.0.0.1:8480"
+    - "127.0.0.1:8481"
+  password: "redis123"
+  db: 0
+distributor:
+  quic:
+    enabled: true
+    addr: "127.0.0.1:8484"
+    certFile: "test/ssl/cert.pem"
+    keyFile: "test/ssl/key.pem"
+observability:
+  prometheus:
+    enabled: true
+    path: "/metrics"
+    port: 8321
+  jaeger:
+    enabled: true
+    uiendpoint: 127.0.0.1:8430
+    httpEndpoint: 127.0.0.1:8431
+    sampler: always
+    sampleratio: 1
+performance:
+  memoryPool:
+    enabled: true
+  bulletCompression: true

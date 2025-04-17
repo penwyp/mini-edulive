@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  me-zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: me-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - me-zookeeper-data:/var/lib/zookeeper/data
+
+  me-kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: me-kafka
+    depends_on:
+      - me-zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_ZOOKEEPER_CONNECT: me-zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://10.2.103.35:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: "bullet_topic:1:1"
+    volumes:
+      - me-kafka-data:/var/lib/kafka/data
+
+  me-redis-node-1:
+    image: redis:7.0
+    container_name: me-redis-node-1
+    command: redis-server --port 8479 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    ports:
+      - "8479:8479"
+    volumes:
+      - me-redis-node-1-data:/data
+
+  me-redis-node-2:
+    image: redis:7.0
+    container_name: me-redis-node-2
+    command: redis-server --port 8480 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    ports:
+      - "8480:8480"
+    volumes:
+      - me-redis-node-2-data:/data
+
+  me-redis-node-3:
+    image: redis:7.0
+    container_name: me-redis-node-3
+    command: redis-server --port 8481 --requirepass redis123 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    ports:
+      - "8481:8481"
+    volumes:
+        - me-redis-node-3-data:/data
+
+  redis-cluster-creator:
+    image: redis:7.0
+    container_name: redis-cluster-creator
+    depends_on:
+      - me-redis-node-1
+      - me-redis-node-2
+      - me-redis-node-3
+    command: >
+      bash -c "echo yes | redis-cli -a redis123 --cluster create me-redis-node-1:8479 me-redis-node-2:8480 me-redis-node-3:8481 --cluster-replicas 0"
+    restart: "no"
+
+  me-jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: me-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "8430:16686"  # Jaeger UI 端口
+      - "8431:4318"   # OTLP HTTP 端口
+    volumes:
+      - me-jaeger-data:/data
+  
+  me-grafana:
+    image: grafana/grafana:10.2.0
+    container_name: me-grafana
+    network_mode: host
+    volumes:
+      - me-grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SERVER_HTTP_PORT=8450
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=grafana-clock-panel
+
+  me-prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: me-prometheus
+    network_mode: host
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.listen-address=:8490'
+      - '--enable-feature=remote-write-receiver' # 启用远程写入
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - me-prometheus-data:/prometheus
+
+volumes:
+  me-zookeeper-data:  # 新增 Zookeeper 数据卷
+  me-kafka-data:  # 新增 Kafka 数据卷
+  me-redis-node-1-data:  # 新增 Redis 节点 1 数据卷
+  me-redis-node-2-data:  # 新增 Redis 节点 2 数据卷
+  me-redis-node-3-data:  # 新增 Redis 节点 3 数据卷
+  me-jaeger-data:  # 新增 Jaeger 数据卷
+  me-prometheus-data:
+  me-grafana-data:
